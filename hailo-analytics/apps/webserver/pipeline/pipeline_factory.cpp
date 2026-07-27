@@ -8,6 +8,7 @@
 #include "pipeline/dynamic_privacy_mask_pipeline.hpp"
 #include "pipeline/face_landmarks_pipeline.hpp"
 #include "pipeline/profile_manager_pipeline.hpp"
+#include "pipeline/lpr_pipeline.hpp"
 #include "resources/common/events_utils.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -90,7 +91,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
                                            }
                                        });
 
-    m_supported_pipelines = {pipeline_t::Basic, pipeline_t::Detection, pipeline_t::DynamicPrivacyMask};
+    m_supported_pipelines = {pipeline_t::Basic, pipeline_t::Detection, pipeline_t::DynamicPrivacyMask, pipeline_t::LPR};
     if (ClipPipeline::is_supported(m_resources))
     {
         m_supported_pipelines.push_back(pipeline_t::CLIP);
@@ -173,6 +174,10 @@ std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t 
     else if (pipeline_type == pipeline_t::DynamicPrivacyMask)
     {
         return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+    }
+    else if (pipeline_type == pipeline_t::LPR)
+    {
+        return std::make_unique<LprPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else
     {

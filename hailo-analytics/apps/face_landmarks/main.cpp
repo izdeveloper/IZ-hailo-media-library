@@ -4,6 +4,9 @@
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
 
+#include "OemStage.h"
+#include "OemProcess.h"
+
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
 
@@ -278,6 +281,9 @@ std::mutex g_stop_mutex;
 std::condition_variable g_stop_cv;
 int main(int argc, char *argv[])
 {
+	OemStageInit();
+	OemProcessInit();
+	
     // App resources
     std::shared_ptr<AppResources> app_resources = std::make_shared<AppResources>();
     app_resources->medialib_config_path = MEDIALIB_CONFIG_PATH;
@@ -348,5 +354,9 @@ int main(int argc, char *argv[])
     std::cout << "Stopping." << std::endl;
     HAILO_ANALYTICS_LOG_INFO("Stopping.");
     app_resources->pipeline->stop();
+
+	OemProcessTerm();
+	OemStageTerm();
+	
     return 0;
 }

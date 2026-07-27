@@ -128,3 +128,54 @@ shared_library('ocr_post',
     install: true,
     install_dir: post_proc_install_dir,
 )
+
+################################################
+# STATE CLASSIFICATION SOURCES
+################################################
+state_cls_post_sources = [
+    'license_plate_recognition/state_cls_post.cpp',
+]
+
+shared_library('state_cls_post',
+    state_cls_post_sources,
+    cpp_args : hailo_lib_args,
+    include_directories: [include_directories('./')],
+    dependencies : [libhailo_postprocess_tools_dep],
+    gnu_symbol_visibility : 'default',
+    install: true,
+    install_dir: post_proc_install_dir,
+)
+
+################################################
+# VEHICLE ATTRIBUTES SOURCES
+################################################
+vehicle_attributes_post_sources = [
+    'license_plate_recognition/vehicle_attributes_post.cpp',
+]
+
+shared_library('vehicle_attributes_post',
+    vehicle_attributes_post_sources,
+    cpp_args : hailo_lib_args,
+    include_directories: [include_directories('./')],
+    dependencies : [libhailo_postprocess_tools_dep],
+    gnu_symbol_visibility : 'default',
+    install: true,
+    install_dir: post_proc_install_dir,
+)
+
+################################################
+# CUSTOM LPR STATEFUL EVENT DECISION ENGINE
+################################################
+lpr_event_sources = [
+    'license_plate_recognition/lpr_event_analytics_post.cpp'
+]
+
+shared_library('lpr_event_analytics_post',
+    lpr_event_sources,
+    cpp_args : hailo_lib_args,
+    include_directories: [include_directories('./')],
+    dependencies : [libhailo_postprocess_tools_dep],
+    gnu_symbol_visibility : 'default',
+    install: true,
+    install_dir: post_proc_install_dir
+)

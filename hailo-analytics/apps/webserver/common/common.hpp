@@ -102,7 +102,8 @@ enum class pipeline_t
     CLIP,
     ProfileManager,
     FaceLandmarks,
-    DynamicPrivacyMask
+    DynamicPrivacyMask,
+    LPR
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(pipeline_t, {{pipeline_t::Basic, "Off"},
@@ -110,7 +111,8 @@ NLOHMANN_JSON_SERIALIZE_ENUM(pipeline_t, {{pipeline_t::Basic, "Off"},
                                           {pipeline_t::CLIP, "Clip text search"},
                                           {pipeline_t::ProfileManager, "Profile Manager"},
                                           {pipeline_t::FaceLandmarks, "Face Landmarks"},
-                                          {pipeline_t::DynamicPrivacyMask, "Dynamic Privacy Mask"}})
+                                          {pipeline_t::DynamicPrivacyMask, "Dynamic Privacy Mask"},
+                                          {pipeline_t::LPR, "License Plate Recognition"}})
 
 enum class ProfileType
 {

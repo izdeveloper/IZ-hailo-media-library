@@ -19,6 +19,7 @@ subdir('src/pipeline/sinks')
 subdir('src/pipeline/codecs')
 subdir('src/pipeline/ai')
 subdir('src/pipeline/overlay')
+subdir('src/pipeline/oem_stage')
 subdir('src/pipeline/muxing')
 subdir('src/pipeline/routing')
 subdir('src/pipeline/cropping')
@@ -30,7 +31,7 @@ subdir('src/analytics')
 lib_hailo_analytics = shared_library('hailo_analytics',
     link_whole: hailo_analytics_components,
     include_directories: incdir,
-    dependencies: base_deps,
+    dependencies: base_deps + [oem_stage_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),

@@ -8,6 +8,7 @@ hailo_postprocess_tools_components = []
 ################################################
 # SUBDIRS
 ################################################
+subdir('src/oem_process')
 subdir('src/image_utils')
 subdir('src/objects')
 subdir('src/tracking')
@@ -18,14 +19,14 @@ subdir('src/tracking')
 lib_hailo_postprocess_tools = shared_library('hailo_postprocess_tools',
     link_whole: hailo_postprocess_tools_components,
     include_directories: incdir,
-    dependencies: base_deps,
+    dependencies: base_deps + [oem_process_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
 )
 libhailo_postprocess_tools_dep = declare_dependency(
     include_directories: incdir,
-    dependencies: base_deps,
+    dependencies: base_deps + [oem_process_dep],
     link_with: lib_hailo_postprocess_tools,
 )
 pkgc.generate(

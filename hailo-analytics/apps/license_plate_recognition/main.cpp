@@ -7,6 +7,9 @@
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
 
+#include "OemStage.h"
+#include "OemProcess.h"
+
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
 
@@ -21,8 +24,11 @@
 // constants
 static constexpr const char *VISION_PIPELINE = "vision_pipeline";
 static constexpr const char *TILING_PIPELINE = "tiling_pipeline";
+static constexpr const char *VEHICLE_ATTRS_PIPELINE = "vehicle_attributes_pipeline";
+static constexpr const char *CLS_PIPELINE = "classification_pipeline";
 static constexpr const char *OCR_PIPELINE = "ocr_pipeline";
 static constexpr const char *ANALYTIC_META_SENDER_PIPELINE = "analytic_metadata_sender_pipeline";
+static constexpr const char *LPR_EVENT_ENGINE_STAGE = "lpr_event_engine_post";
 static constexpr const char *APP_NAME = "lpr_app";
 static constexpr const char *HOST_IP = "10.0.0.2";
 static constexpr const char *VISION_SINK = "sink0";
@@ -381,6 +387,22 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
     hailo_analytics::pipeline::PipelinePtr tiling_pipeline = tiling_pipeline_status.value();
 
+    auto veh_attrs_pipeline_status = lpr_app::build_vehicle_attributes_pipeline(VEHICLE_ATTRS_PIPELINE);
+    if (!veh_attrs_pipeline_status.has_value())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to create vehicle attributes pipeline");
+        throw std::runtime_error("Failed to create vehicle attributes pipeline");
+    }
+    hailo_analytics::pipeline::PipelinePtr veh_attrs_pipeline = veh_attrs_pipeline_status.value();
+
+    auto cls_pipeline_status = lpr_app::build_classification_pipeline(CLS_PIPELINE);
+    if (!cls_pipeline_status.has_value())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to create classification pipeline");
+        throw std::runtime_error("Failed to create classification pipeline");
+    }
+    hailo_analytics::pipeline::PipelinePtr cls_pipeline = cls_pipeline_status.value();
+
     auto ocr_pipeline_status = lpr_app::build_ocr_pipeline(OCR_PIPELINE);
     if (!ocr_pipeline_status.has_value())
     {
@@ -388,6 +410,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to create OCR pipeline");
     }
     hailo_analytics::pipeline::PipelinePtr ocr_pipeline = ocr_pipeline_status.value();
+
+    auto event_engine_stage = hailo_analytics::pipeline::ai::PostprocessStageBuild::create()
+    .set_stage_name(LPR_EVENT_ENGINE_STAGE)
+    .set_so_path("/usr/lib/hailo-post-processes/liblpr_event_analytics_post.so") // /usr/lib/liboem_process.so.1
+    .set_function_name_opt("filter") // Triggers the extern "C" filter function
+    .set_queue_size_opt(5)
+    .set_leaky_opt(false)
+    .buildptr();
 
     // Analytic Metadata Sender Pipeline
     hailo_analytics::analytics::analytic_metadata_zmq_sender::analytic_metadata_zmq_sender_config_t
@@ -413,13 +443,19 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelineBuilder pip_builder;
     pip_builder.add_stage(vision_pipeline, hailo_analytics::pipeline::StageType::SOURCE)
         .add_stage(tiling_pipeline)
+        .add_stage(veh_attrs_pipeline)
+        .add_stage(cls_pipeline)
         .add_stage(ocr_pipeline)
+        .add_stage(event_engine_stage)
         .add_stage(analytic_metadata_sender_pipeline, hailo_analytics::pipeline::StageType::SINK);
 
     // Connect vision pipeline output to tiling pipeline input
     pip_builder.connect_frontend(VISION_PIPELINE, AI_SINK, TILING_PIPELINE);
-    pip_builder.connect(TILING_PIPELINE, OCR_PIPELINE);
-    pip_builder.connect(OCR_PIPELINE, ANALYTIC_META_SENDER_PIPELINE);
+    pip_builder.connect(TILING_PIPELINE, VEHICLE_ATTRS_PIPELINE);
+    pip_builder.connect(VEHICLE_ATTRS_PIPELINE, CLS_PIPELINE);
+    pip_builder.connect(CLS_PIPELINE, OCR_PIPELINE);
+    pip_builder.connect(OCR_PIPELINE, LPR_EVENT_ENGINE_STAGE);
+    pip_builder.connect(LPR_EVENT_ENGINE_STAGE, ANALYTIC_META_SENDER_PIPELINE);
 
     app_resources->pipeline = pip_builder.build(APP_NAME, true);
 }
@@ -428,6 +464,9 @@ std::mutex g_stop_mutex;
 std::condition_variable g_stop_cv;
 int main(int argc, char *argv[])
 {
+    OemProcessTerm();
+	OemStageTerm();
+
     // App resources
     std::shared_ptr<AppResources> app_resources = std::make_shared<AppResources>();
     app_resources->medialib_config_path = MEDIALIB_CONFIG_PATH;
@@ -526,6 +565,9 @@ int main(int argc, char *argv[])
     {
         std::remove(temp_file.c_str());
     }
+
+    OemProcessTerm();
+	OemStageTerm();
 
     return 0;
 }

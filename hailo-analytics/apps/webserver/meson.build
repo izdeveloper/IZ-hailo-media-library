@@ -33,7 +33,9 @@ src = common_src + [
   'pipeline/pipeline_factory.cpp',
   'pipeline/pipeline_event_handle.cpp',
   'pipeline/pipeline_endpoints.cpp',
-  'pipeline/isp_blender.cpp'
+  'pipeline/isp_blender.cpp',
+  'pipeline/lpr_pipeline.cpp',
+  'pipeline/lpr_pipeline_builder.cpp'
 ]
 
 webserver_deps = base_deps + [libhailort_dep, thread_dep, glib_dep, spdlog_dep, libdatachannel_link, clip_dep, libhailo_analytics_dep, face_landmarks_pipeline_builder_dep]
