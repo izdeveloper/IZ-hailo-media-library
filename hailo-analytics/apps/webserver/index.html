@@ -95,6 +95,11 @@
             background-color: var(--danger);
             color: white;
         }
+        
+        button.btn-sm {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
 
         /* Main Layout */
         .workspace {
@@ -107,7 +112,7 @@
 
         /* Left Settings Panel */
         .settings-panel {
-            width: 360px;
+            width: 380px;
             background: var(--panel-bg);
             border-radius: 6px;
             border: 1px solid var(--border);
@@ -125,7 +130,7 @@
         }
 
         .tab-btn {
-            flex: 1 1 33%;
+            flex: 1 1 30%;
             padding: 10px 5px;
             background: none;
             border: none;
@@ -194,6 +199,55 @@
             padding: 4px 6px;
             font-weight: bold;
             text-align: right;
+        }
+
+        /* Database Event Cards */
+        .db-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .db-header span {
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--text-muted);
+        }
+
+        .event-card {
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .event-card img {
+            width: 90px;
+            height: 65px;
+            object-fit: cover;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+        }
+
+        .event-card-details {
+            flex: 1;
+            font-size: 11px;
+            color: var(--text-dark);
+            line-height: 1.4;
+        }
+
+        .event-card-details strong {
+            font-size: 15px;
+            color: var(--primary);
+            display: block;
+            margin-bottom: 2px;
         }
 
         /* Right Stream & Events Area */
@@ -356,7 +410,6 @@
                 display: none;
             }
 
-            /* Hide text status on mobile to save space */
             button.btn {
                 padding: 6px 12px;
                 font-size: 11px;
@@ -385,6 +438,7 @@
                 <button class="tab-btn" onclick="showTab('tab-ai')">AI / LPR</button>
                 <button class="tab-btn" onclick="showTab('tab-advanced')">Advanced</button>
                 <button class="tab-btn" onclick="showTab('tab-encoder')">Encoder</button>
+                <button class="tab-btn" onclick="showTab('tab-eventsdb')">Events DB</button>
             </div>
 
             <div class="tab-content-container">
@@ -589,6 +643,17 @@
                         <input type="number" id="enc-bitrate" value="18000" onchange="applyEncoder()">
                     </div>
                 </div>
+                
+                <!-- 6. Events DB Page -->
+                <div id="tab-eventsdb" class="tab-pane">
+                    <div class="db-header">
+                        <span id="db-count">0 / 1000 Events</span>
+                        <button class="btn btn-danger btn-sm" onclick="clearEventDB()">Clear DB</button>
+                    </div>
+                    <div id="history-list">
+                        <!-- Historical event cards render here -->
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -642,13 +707,159 @@
         let pc = null;
         let isLprActive = false;
 
-        // UI Helpers
+        // --- IndexedDB Implementation for Persistent Event Storage ---
+        const DB_NAME = 'HailoLPR_DB';
+        const STORE_NAME = 'events';
+        const MAX_EVENTS = 1000;
+        let db;
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                
+                request.onupgradeneeded = (e) => {
+                    db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const store = db.createObjectStore(STORE_NAME, { keyPath: 'transaction_guid' });
+                        // Create an index to easily sort by timestamp and delete the oldest
+                        store.createIndex('timestamp', 'transaction_timestamp', { unique: false });
+                    }
+                };
+                
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    resolve();
+                };
+                
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function saveEventToDB(event) {
+            if (!db) return;
+            
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            
+            // Put the event (overwrites automatically if the GUID already exists)
+            store.put(event);
+
+            // Cleanup: Enforce 1000 event limit
+            const countReq = store.count();
+            countReq.onsuccess = () => {
+                if (countReq.result > MAX_EVENTS) {
+                    const index = store.index('timestamp');
+                    // 'next' cursor goes from oldest to newest string
+                    const cursorReq = index.openCursor(null, 'next'); 
+                    let toDelete = countReq.result - MAX_EVENTS;
+                    
+                    cursorReq.onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor && toDelete > 0) {
+                            cursor.delete();
+                            toDelete--;
+                            cursor.continue();
+                        }
+                    };
+                }
+            };
+            
+            tx.oncomplete = () => {
+                // If the user is currently looking at the Events DB tab, refresh it seamlessly
+                if (document.getElementById('tab-eventsdb').classList.contains('active')) {
+                    renderEventHistory();
+                }
+            };
+        }
+
+        async function getEventHistory() {
+            if (!db) return [];
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const index = store.index('timestamp');
+                const request = index.getAll();
+                
+                request.onsuccess = () => {
+                    // Reverse to show the newest entries at the top
+                    resolve(request.result.reverse());
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function clearEventDB() {
+            if (!db || !confirm("Are you sure you want to permanently delete all stored events?")) return;
+            
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).clear();
+            
+            tx.oncomplete = () => {
+                renderEventHistory();
+            };
+        }
+
+        async function renderEventHistory() {
+            const historyList = document.getElementById('history-list');
+            if (!historyList) return;
+            
+            const events = await getEventHistory();
+            document.getElementById('db-count').innerText = `${events.length} / ${MAX_EVENTS} Events`;
+            
+            if (events.length === 0) {
+                historyList.innerHTML = '<div class="off-banner">No events in database.</div>';
+                return;
+            }
+
+            let html = '';
+            events.forEach(ev => {
+                const lpr = (ev.lpr_results && ev.lpr_results.length > 0) ? ev.lpr_results[0] : {};
+                const veh = (ev.vehicles && ev.vehicles.length > 0) ? ev.vehicles[0] : {};
+                
+                let imgSrc = null;
+                if (ev.images && ev.images.length > 0 && ev.images[0].image_data) {
+                    const encoding = ev.images[0].image_encoding || 'jpeg';
+                    imgSrc = `data:image/${encoding};base64,${ev.images[0].image_data}`;
+                }
+                
+                const imgHtml = imgSrc 
+                    ? `<img src="${imgSrc}" onclick="openImageModal('${imgSrc}')">` 
+                    : `<div style="width:90px;height:65px;background:#eee;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa;border:1px solid #ccc;">No Image</div>`;
+
+                // Format timestamp beautifully
+                let timeStr = ev.transaction_timestamp || 'N/A';
+                if (timeStr !== 'N/A') {
+                    const d = new Date(timeStr);
+                    timeStr = isNaN(d) ? timeStr : d.toLocaleString();
+                }
+
+                html += `
+                <div class="event-card">
+                    ${imgHtml}
+                    <div class="event-card-details">
+                        <strong>${lpr.plate_read || 'N/A'}</strong>
+                        <div style="color:var(--text-muted); margin-bottom: 4px;">${timeStr}</div>
+                        <div><b>Plate:</b> ${lpr.plate_state || 'N/A'} (${lpr.plate_read_confidence || 0}%)</div>
+                        <div><b>Vehicle:</b> ${veh.color || 'N/A'} ${veh.vehicle_class || 'N/A'}</div>
+                    </div>
+                </div>`;
+            });
+            
+            historyList.innerHTML = html;
+        }
+
+        // --- UI Helpers ---
         function showTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
             event.currentTarget.classList.add('active');
             document.getElementById(tabId).classList.add('active');
+
+            // Force a re-render of the history array when navigating to the DB tab
+            if (tabId === 'tab-eventsdb') {
+                renderEventHistory();
+            }
         }
 
         function syncInput(targetId, val) {
@@ -662,7 +873,7 @@
             modal.style.display = 'flex';
         }
 
-        // WebRTC Stream Connection
+        // --- WebRTC Stream Connection ---
         async function initWebRtc() {
             const playBtn = document.getElementById('playBtn');
             const videoEl = document.getElementById('remoteVideo');
@@ -678,7 +889,6 @@
                 if (evt.streams && evt.streams[0]) {
                     videoEl.srcObject = evt.streams[0];
                     videoEl.play().then(() => {
-                        // FIX: Add null check for playBtn
                         if (playBtn) playBtn.style.display = 'none';
                         statusEl.innerText = "Live Stream Active";
                         statusEl.classList.add('active');
@@ -842,15 +1052,10 @@
         async function updateProfileSetting(setting, value) {
             let payload = {};
             
-            // The backend expects the root JSON key to match the setting name
             if (setting === 'rotation') {
-                payload = { 
-                    "rotation": { "angle": value } 
-                };
+                payload = { "rotation": value };
             } else if (setting === 'flip') {
-                payload = { 
-                    "flip": { "direction": value } 
-                };
+                payload = { "flip": value };
             }
 
             try {
@@ -998,11 +1203,8 @@
             });
         }
 
-        // --- Fast Instant-Snapshot LPR Polling ---
-        const eventThumbnails = {};
-        const processedGuids = new Set();
-
         // --- Backend-Driven LPR Polling ---
+        const processedGuids = new Set(); // Prevent spamming the DB with the same live event
 
         async function fetchLprEvents() {
             if (!isLprActive) return;
@@ -1022,7 +1224,16 @@
                     return;
                 }
 
-                // Only show the latest 15 events in the table
+                // 1. Save new events to the persistent IndexedDB
+                events.forEach(ev => {
+                    const guid = ev.transaction_guid;
+                    if (guid && !processedGuids.has(guid)) {
+                        processedGuids.add(guid);
+                        saveEventToDB(ev);
+                    }
+                });
+
+                // 2. Only show the latest 15 events in the Live Table
                 const displayEvents = events.slice(0, 15);
 
                 tbody.innerHTML = '';
@@ -1041,9 +1252,11 @@
                         ? `<img src="${imgSrc}" style="height:36px; border-radius:4px; cursor:pointer; object-fit:cover;" onclick="openImageModal('${imgSrc}')" title="Click to enlarge">`
                         : '<span style="color:var(--text-muted); font-size:10px;">No Image</span>';
 
+                    let timeStr = ev.transaction_timestamp ? new Date(ev.transaction_timestamp).toLocaleTimeString() : 'N/A';
+
                     const row = `<tr>
                         <td style="vertical-align:middle; width:60px; padding:2px;">${imageTd}</td>
-                        <td>${ev.transaction_timestamp || 'N/A'}</td>
+                        <td>${timeStr}</td>
                         <td style="font-weight:bold; font-size:1.1em; color:var(--primary);">${lpr.plate_read || 'N/A'}</td>
                         <td>${lpr.plate_state || 'N/A'}</td>
                         <td>${lpr.plate_read_confidence || 0}%</td>
@@ -1057,15 +1270,23 @@
             }
         }
 
-        // Poll every 500 milliseconds (Backend now handles perfect frame extraction)
+        // Poll every 1 second
         setInterval(fetchLprEvents, 1000);
 
         // Auto-run on page load
-        window.onload = () => {
+        window.onload = async () => {
             disableOSD();
             checkPipelineStatus();
             fetchISP();
             initWebRtc();
+            
+            // Initialize the database connection
+            try {
+                await initDB();
+                console.log("IndexedDB Initialized.");
+            } catch (e) {
+                console.error("Database initialization failed:", e);
+            }
         };
 
     </script>

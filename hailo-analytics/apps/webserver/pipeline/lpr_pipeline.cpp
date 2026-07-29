@@ -100,11 +100,10 @@ void LprPipeline::build_pipeline() {
     auto lpr_event_sink = AppSinkStageBuild::create()
         .set_stage_name("lpr_event_sink")
         .set_queue_size_opt(5)
-        .set_leaky_opt(false)
+        .set_leaky_opt(true) // Enable leaky mode so slow AI drops don't block the video pipeline
         .set_process_func([this, ai_width, ai_height](hailo_analytics::pipeline::BufferPtr buf) {
             if (!buf) return;
 
-            // Extract the ROI metadata safely using Hailo's native API
             HailoROIPtr roi = buf->get_roi();
             if (!roi) return;
 
@@ -116,38 +115,36 @@ void LprPipeline::build_pipeline() {
                     auto cls = std::dynamic_pointer_cast<HailoClassification>(obj);
                     if (cls && cls->get_classification_type() == "inex_event") {
                         event_json_str = cls->get_label();
-                        break; // Found the event tag!
+                        break; 
                     }
                 }
             }
 
-            // If an event tag was found, process the frame and dispatch
+            // If an event tag was found, extract raw memory FAST (< 1ms) and release the Hailo buffer
             if (!event_json_str.empty()) {
-                std::cout << "\n[LPR_SINK] Found INEX event tag. Extracting frame (" << ai_width << "x" << ai_height << ")..." << std::endl;
-                
-                nlohmann::json inex_payload = nlohmann::json::parse(event_json_str);
-                std::string base64_image = "";
+                std::cout << "\n[LPR_SINK] Found INEX event tag. Fast-copying frame..." << std::endl;
 
-                // Get the Hailo Media Library Buffer
+                std::vector<uint8_t> y_copy;
+                std::vector<uint8_t> uv_copy;
+                bool is_split_plane = false;
+
                 auto ml_buf = buf->get_buffer(); 
                 if (ml_buf) {
-                    // Extract both DMA file descriptors
                     int fd_y = ml_buf->get_plane_fd(0);
-                    int fd_uv = ml_buf->get_plane_fd(1); // May be -1 if the driver uses a single contiguous plane
+                    int fd_uv = ml_buf->get_plane_fd(1);
                     
                     if (fd_y >= 0) {
-                        // 1. Sync DMA buffers for CPU read to fix cache coherency
                         struct dma_buf_sync sync = { 0 };
                         sync.flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ;
                         ioctl(fd_y, DMA_BUF_IOCTL_SYNC, &sync);
                         if (fd_uv >= 0) ioctl(fd_uv, DMA_BUF_IOCTL_SYNC, &sync);
 
-                        // 2. Map the Y Plane
+                        // Map Y Plane
                         off_t size_y = lseek(fd_y, 0, SEEK_END); lseek(fd_y, 0, SEEK_SET);
                         size_t map_size_y = (size_y > 0) ? size_y : (ai_width * ai_height);
                         void* data_y = mmap(NULL, map_size_y, PROT_READ, MAP_SHARED, fd_y, 0);
 
-                        // 3. Map the UV Plane (if it exists separately)
+                        // Map UV Plane
                         void* data_uv = MAP_FAILED;
                         size_t map_size_uv = 0;
                         if (fd_uv >= 0) {
@@ -156,64 +153,74 @@ void LprPipeline::build_pipeline() {
                             data_uv = mmap(NULL, map_size_uv, PROT_READ, MAP_SHARED, fd_uv, 0);
                         }
 
+                        // Fast copy raw bytes to std::vector
                         if (data_y != MAP_FAILED) {
-                            try {
-                                cv::Mat bgr;
-                                if (fd_uv >= 0 && data_uv != MAP_FAILED) {
-                                    // NV12 is split across two hardware DMA planes (Y and UV)
-                                    cv::Mat y(ai_height, ai_width, CV_8UC1, data_y);
-                                    cv::Mat uv(ai_height / 2, ai_width / 2, CV_8UC2, data_uv);
-                                    cv::cvtColorTwoPlane(y, uv, bgr, cv::COLOR_YUV2BGR_NV12);
-                                } else {
-                                    // NV12 is contiguous in a single DMA plane
-                                    cv::Mat yuv(ai_height * 3 / 2, ai_width, CV_8UC1, data_y);
-                                    cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_NV12);
-                                }
-
-                                std::vector<uchar> buf_jpg;
-                                cv::imencode(".jpg", bgr, buf_jpg);
-
-                                gchar* b64_char = g_base64_encode(buf_jpg.data(), buf_jpg.size());
-                                base64_image = std::string(b64_char);
-                                g_free(b64_char);
-
-                                std::cout << "[LPR_SINK] Image encoded successfully! Base64 Size: " << base64_image.size() << " bytes." << std::endl;
-                            } catch (const std::exception& e) {
-                                std::cout << "[LPR_SINK] ERROR: OpenCV conversion failed: " << e.what() << std::endl;
+                            if (fd_uv >= 0 && data_uv != MAP_FAILED) {
+                                is_split_plane = true;
+                                y_copy.assign((uint8_t*)data_y, (uint8_t*)data_y + (ai_width * ai_height));
+                                uv_copy.assign((uint8_t*)data_uv, (uint8_t*)data_uv + (ai_width * ai_height / 2));
+                                munmap(data_uv, map_size_uv);
+                            } else {
+                                y_copy.assign((uint8_t*)data_y, (uint8_t*)data_y + (ai_width * ai_height * 3 / 2));
                             }
-                            
                             munmap(data_y, map_size_y);
                         }
-                        if (data_uv != MAP_FAILED) {
-                            munmap(data_uv, map_size_uv);
-                        }
 
-                        // 4. Release CPU sync lock
                         sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
                         ioctl(fd_y, DMA_BUF_IOCTL_SYNC, &sync);
                         if (fd_uv >= 0) ioctl(fd_uv, DMA_BUF_IOCTL_SYNC, &sync);
                     }
                 }
 
-                // Add required INEX 1.7 images array[cite: 2]
-                inex_payload["images"] = nlohmann::json::array({
-                    {
-                        {"image_id", 0},
-                        {"image_guid", inex_payload.value("transaction_guid", "unknown")},
-                        {"image_encoding", "jpg"},
-                        {"image_data", base64_image}
+                // BufferPtr `buf` goes out of scope here and immediately frees the DMA buffer back to the pool!
+
+                // Offload CPU-heavy tasks (OpenCV conversion, JPEG encoding, Base64, JSON, and cURL) to a background thread
+                std::thread([this, event_json_str, y_copy = std::move(y_copy), uv_copy = std::move(uv_copy), is_split_plane, ai_width, ai_height]() {
+                    std::string base64_image = "";
+
+                    if (!y_copy.empty()) {
+                        try {
+                            cv::Mat bgr;
+                            if (is_split_plane && !uv_copy.empty()) {
+                                cv::Mat y(ai_height, ai_width, CV_8UC1, (void*)y_copy.data());
+                                cv::Mat uv(ai_height / 2, ai_width / 2, CV_8UC2, (void*)uv_copy.data());
+                                cv::cvtColorTwoPlane(y, uv, bgr, cv::COLOR_YUV2BGR_NV12);
+                            } else {
+                                cv::Mat yuv(ai_height * 3 / 2, ai_width, CV_8UC1, (void*)y_copy.data());
+                                cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_NV12);
+                            }
+
+                            std::vector<uchar> buf_jpg;
+                            cv::imencode(".jpg", bgr, buf_jpg);
+
+                            gchar* b64_char = g_base64_encode(buf_jpg.data(), buf_jpg.size());
+                            base64_image = std::string(b64_char);
+                            g_free(b64_char);
+
+                            std::cout << "[LPR_SINK] Image encoded in background thread! Base64 Size: " << base64_image.size() << " bytes." << std::endl;
+                        } catch (const std::exception& e) {
+                            std::cout << "[LPR_SINK] ERROR: OpenCV conversion failed in worker thread: " << e.what() << std::endl;
+                        }
                     }
-                });
 
-                // Update the local Web UI
-                {
-                    std::lock_guard<std::mutex> lock(m_events_mutex);
-                    m_lpr_events.insert(m_lpr_events.begin(), inex_payload);
-                    if (m_lpr_events.size() > 50) m_lpr_events.pop_back();
-                }
+                    nlohmann::json inex_payload = nlohmann::json::parse(event_json_str);
+                    inex_payload["images"] = nlohmann::json::array({
+                        {
+                            {"image_id", 0},
+                            {"image_guid", inex_payload.value("transaction_guid", "unknown")},
+                            {"image_encoding", "jpg"},
+                            {"image_data", base64_image}
+                        }
+                    });
 
-                // Asynchronously dispatch the payload to the target INEX URL
-                std::thread([inex_payload]() {
+                    // Update UI locally
+                    {
+                        std::lock_guard<std::mutex> lock(m_events_mutex);
+                        m_lpr_events.insert(m_lpr_events.begin(), inex_payload);
+                        if (m_lpr_events.size() > 50) m_lpr_events.pop_back();
+                    }
+
+                    // Dispatch to target INEX server
                     std::string target_url = get_target_inex_url();
                     std::string json_str = inex_payload.dump();
                     
