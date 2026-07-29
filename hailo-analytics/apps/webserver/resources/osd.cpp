@@ -61,7 +61,7 @@ inline nlohmann::json from_osd_config_to_medialib_config(nlohmann::json config)
 inline nlohmann::json from_medialib_config_to_osd_config(nlohmann::json config)
 {
     nlohmann::json osd_config;
-    osd_config["global_enable"] = true;
+    osd_config["global_enable"] = false;
     osd_config["image"]["global_enable"] = true;
     osd_config["dateTime"]["global_enable"] = true;
     osd_config["text"]["global_enable"] = true;

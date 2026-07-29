@@ -47,8 +47,8 @@ oem_process_dep = declare_dependency(
 
 lpr_deps = [libhailo_analytics_dep, lpr_pipeline_builder_dep]
 
-#lpr_deps += [oem_stage_dep]
-#lpr_deps += [oem_process_dep]
+lpr_deps += [oem_stage_dep]
+lpr_deps += [oem_process_dep]
 
 executable('lpr_app',
   lpr_app_src,

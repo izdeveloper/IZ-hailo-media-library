@@ -3,32 +3,29 @@
 #include <vector>
 #include <unordered_map>
 #include <mutex>
-#include <regex>
 #include <thread>
 #include <chrono>
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
 #include <sstream>
-#include <fstream> // Added for file stream parsing
+
+#include <nlohmann/json.hpp>
 
 // Hailo Analytics & Post-Process Framework Includes
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 
-// Unique configuration for your application deployment
+// Configuration Constants
 static constexpr float CONFIG_MIN_WIDTH = 0.01f;
 static constexpr float CONFIG_MAX_WIDTH = 0.90f;
-static constexpr float CONFIG_MIN_CONF = 0.85f;        
-static constexpr uint32_t CONFIG_MIN_FRAMES = 5;      
-static constexpr int CONFIG_STATE_TTL_SECONDS = 30;    
+static constexpr float CONFIG_MIN_CONF = 0.85f;         
+static constexpr uint32_t CONFIG_MIN_FRAMES = 5;       // Minimum frames before eligible
+static constexpr uint32_t CONFIG_MAX_FRAMES = 10;      // Maximum frames to wait for optimal voting
+static constexpr int CONFIG_TRACK_TIMEOUT_MS = 500;    // Dispatch immediately if lost sight after min_frames
+static constexpr int CONFIG_STATE_TTL_SECONDS = 30;     
 static constexpr int CONFIG_DISPATCH_COOLDOWN_SECONDS = 30; 
-static constexpr int CONFIG_MAX_TYPO_DISTANCE = 2;          
-
-// These will be loaded dynamically from the JSON file at runtime
-static std::string g_http_endpoint_url = "http://127.0.0.1:8080/api/v1/lpr-events"; // Default fallback
-static const std::string INEX_QUERY_PARAMS = "?cmd=uploadevent&api_version=1.7";
-static const std::string CONFIG_JSON_PATH = "/home/root/apps/license_plate_recognition/resources/event_config_ip.json";
+static constexpr int CONFIG_MAX_TYPO_DISTANCE = 4;          
 
 static uint64_t g_transaction_counter = 1;
 
@@ -54,37 +51,6 @@ struct DispatchedEvent {
 static std::unordered_map<int, TrackedPlateState> g_state_tracker_map;
 static std::vector<DispatchedEvent> g_recent_dispatches;
 static std::mutex g_tracker_mutex;
-static std::once_flag g_config_init_flag;
-
-// Reusable manual string/JSON value extractor to keep the compilation straightforward
-void load_config_from_json(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cerr << "[LPR_EVENT_ENGINE] ERROR: Could not open config JSON: " << path << ". Using default fallback URL." << std::endl;
-        return;
-    }
-    
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    // Simple robust regex parsing to avoid bringing heavy library dependencies
-    std::regex ip_regex("\"http_endpoint_ip\"\\s*:\\s*\"([^\"]+)\"");
-    std::regex port_regex("\"http_endpoint_port\"\\s*:\\s*(\\d+)");
-    std::smatch match;
-
-    std::string ip = "127.0.0.1";
-    std::string port = "8080";
-
-    if (std::regex_search(content, match, ip_regex) && match.size() > 1) {
-        ip = match[1].str();
-    }
-    if (std::regex_search(content, match, port_regex) && match.size() > 1) {
-        port = match[1].str();
-    }
-
-    g_http_endpoint_url = "http://" + ip + ":" + port + "/api/v1/lpr-events";
-    std::cout << "[LPR_EVENT_ENGINE] Successfully initialized network URL from JSON config: " << g_http_endpoint_url << std::endl;
-}
 
 std::string get_utc_iso_timestamp() {
     auto now = std::chrono::system_clock::now();
@@ -123,47 +89,44 @@ bool is_valid_plate_format(const std::string& text) {
     return true;
 }
 
-void dispatch_inex_event_async(uint64_t transaction_id, const TrackedPlateState& state) {
-    std::thread([transaction_id, state]() {
-        std::string timestamp = get_utc_iso_timestamp();
-        std::string guid = "hailo-edge-tx-" + std::to_string(transaction_id) + "-" + std::to_string(state.last_tracking_id);
-        int out_confidence = static_cast<int>(state.highest_confidence * 100.0f);
+// Emits event metadata onto the HailoROIPtr as a HailoClassification object
+void tag_event_on_roi(HailoROIPtr roi, const TrackedPlateState& state) {
+    uint64_t tx_id = g_transaction_counter++;
+    std::string guid = "hailo-edge-tx-" + std::to_string(tx_id) + "-" + std::to_string(state.last_tracking_id);
+    int out_confidence = static_cast<int>(state.highest_confidence * 100.0f);
 
-        std::string json_payload = "{\n"
-            "  \"transaction_id\": " + std::to_string(transaction_id) + ",\n"
-            "  \"transaction_guid\": \"" + guid + "\",\n"
-            "  \"transaction_timestamp\": \"" + timestamp + "\",\n"
-            "  \"event_version\": 1,\n"
-            "  \"transaction_index\": " + std::to_string(transaction_id) + ",\n"
-            "  \"lane_id\": 1,\n"
-            "  \"lane_name\": \"lane_1\",\n"
-            "  \"lpr_results\": [{\n"
-            "    \"lpr_result_id\": 0,\n"
-            "    \"plate_read\": \"" + state.best_plate_text + "\",\n"
-            "    \"plate_read_confidence\": " + std::to_string(out_confidence) + ",\n"
-            "    \"plate_state\": \"" + state.plate_state + "\",\n"
-            "    \"plate_state_confidence\": " + std::to_string(out_confidence) + "\n"
-            "  }],\n"
-            "  \"vehicles\": [{\n"
-            "    \"vehicle_id\": 0,\n"
-            "    \"color\": \"" + state.car_color + "\",\n"
-            "    \"color_confidence\": 95,\n"
-            "    \"vehicle_class\": \"" + state.car_type + "\",\n"
-            "    \"vehicle_class_confidence\": 90\n"
-            "  }]\n"
-            "}";
+    nlohmann::json event_payload = {
+        {"transaction_id", tx_id},
+        {"transaction_guid", guid},
+        {"transaction_timestamp", get_utc_iso_timestamp()},
+        {"event_version", 1},
+        {"transaction_index", tx_id},
+        {"lane_id", 1},
+        {"lane_name", "lane_1"},
+        {"lpr_results", nlohmann::json::array({
+            {
+                {"lpr_result_id", 0},
+                {"plate_read", state.best_plate_text},
+                {"plate_read_confidence", out_confidence},
+                {"plate_state", state.plate_state},
+                {"plate_state_confidence", out_confidence}
+            }
+        })},
+        {"vehicles", nlohmann::json::array({
+            {
+                {"vehicle_id", 0},
+                {"color", state.car_color},
+                {"color_confidence", 95},
+                {"vehicle_class", state.car_type},
+                {"vehicle_class_confidence", 90}
+            }
+        })}
+    };
 
-        // Read dynamically generated URL
-        std::string full_url = g_http_endpoint_url + INEX_QUERY_PARAMS;
-        std::cout << "\n[LPR_EVENT_ENGINE] Sending compliance package to destination: " << full_url << "\n" << std::endl;
+    std::cout << "Dispatching INEX Event: " << event_payload.dump() << std::endl;
 
-        std::string command = "curl --max-time 2 -X POST -H \"Content-Type: application/json\" -d '" + json_payload + "' \"" + full_url + "\" > /dev/null 2>&1";
-        
-        int network_status = std::system(command.c_str());
-        if (network_status != 0) {
-            std::cerr << "[LPR_EVENT_ENGINE] Warning: Connection timeout/error code: " << network_status << std::endl;
-        }
-    }).detach();
+    // Attach custom classification tag "inex_event" containing JSON payload string
+    roi->add_object(std::make_shared<HailoClassification>("inex_event", event_payload.dump(), state.highest_confidence));
 }
 
 extern "C" {
@@ -171,16 +134,35 @@ extern "C" {
 void filter(HailoROIPtr roi) {
     if (!roi) return;
 
-    // Trigger one-time thread-safe config load from local disk storage[cite: 3]
-    std::call_once(g_config_init_flag, []() {
-        load_config_from_json(CONFIG_JSON_PATH);
-    });
-
     auto detections = hailo_common::get_hailo_detections(roi);
     std::lock_guard<std::mutex> lock(g_tracker_mutex);
     auto now = std::chrono::steady_clock::now();
 
-    // Clean up stale state tracker
+    // 1. Process Active Tracking & Early Flush for Lost Tracks
+    for (auto& [track_id, state] : g_state_tracker_map) {
+        if (state.event_dispatched) continue;
+
+        auto time_since_last_seen = std::chrono::duration_cast<std::chrono::milliseconds>(now - state.last_seen_time).count();
+
+        if (time_since_last_seen > CONFIG_TRACK_TIMEOUT_MS && state.total_valid_frames >= CONFIG_MIN_FRAMES) {
+            bool recently_sent = false;
+            for (const auto& past_event : g_recent_dispatches) {
+                if (levenshtein_distance(state.best_plate_text, past_event.plate_text) <= CONFIG_MAX_TYPO_DISTANCE) {
+                    recently_sent = true;
+                    break;
+                }
+            }
+
+            state.event_dispatched = true;
+
+            if (!recently_sent) {
+                g_recent_dispatches.push_back({now, state.best_plate_text});
+                tag_event_on_roi(roi, state);
+            }
+        }
+    }
+
+    // 2. Cleanup stale state history
     for (auto it = g_state_tracker_map.begin(); it != g_state_tracker_map.end(); ) {
         if (std::chrono::duration_cast<std::chrono::seconds>(now - it->second.last_seen_time).count() > CONFIG_STATE_TTL_SECONDS) {
             it = g_state_tracker_map.erase(it);
@@ -189,7 +171,7 @@ void filter(HailoROIPtr roi) {
         }
     }
 
-    // Clean up dispatch cooldown cache
+    // 3. Cleanup dispatch cooldown list
     g_recent_dispatches.erase(
         std::remove_if(g_recent_dispatches.begin(), g_recent_dispatches.end(),
             [&now](const DispatchedEvent& e) {
@@ -198,6 +180,7 @@ void filter(HailoROIPtr roi) {
         g_recent_dispatches.end()
     );
 
+    // 4. Process Current Frame Detections
     for (const auto& detection : detections) {
         if (detection->get_label() != "license_plate") continue;
 
@@ -230,7 +213,6 @@ void filter(HailoROIPtr roi) {
         if (bbox.width() < CONFIG_MIN_WIDTH || bbox.width() > CONFIG_MAX_WIDTH) continue;
 
         if (ocr_confidence >= CONFIG_MIN_CONF && is_valid_plate_format(plate_string)) {
-            
             int logical_track_id = raw_tracking_id;
             
             if (g_state_tracker_map.find(raw_tracking_id) == g_state_tracker_map.end()) {
@@ -296,13 +278,8 @@ void filter(HailoROIPtr roi) {
                 }
             }
 
-            std::cout << "[LPR_ENGINE] Trace: " << logical_track_id 
-                      << " | Read: " << plate_string 
-                      << " | Consensus: " << state.best_plate_text
-                      << " | Window: " << state.total_valid_frames << "/" << CONFIG_MIN_FRAMES << std::endl;
-
-            if (state.total_valid_frames >= CONFIG_MIN_FRAMES && !state.event_dispatched) {
-                
+            // Upper Limit Triggering (10 Frames)
+            if (state.total_valid_frames >= CONFIG_MAX_FRAMES && !state.event_dispatched) {
                 bool recently_sent = false;
                 for (const auto& past_event : g_recent_dispatches) {
                     if (levenshtein_distance(state.best_plate_text, past_event.plate_text) <= CONFIG_MAX_TYPO_DISTANCE) {
@@ -311,13 +288,11 @@ void filter(HailoROIPtr roi) {
                     }
                 }
 
-                state.event_dispatched = true; 
+                state.event_dispatched = true;
 
                 if (!recently_sent) {
                     g_recent_dispatches.push_back({now, state.best_plate_text});
-                    dispatch_inex_event_async(g_transaction_counter++, state);
-                } else {
-                    std::cout << "[LPR_EVENT_ENGINE] Silently Suppressed Duplicate / Typo Plate: " << state.best_plate_text << std::endl;
+                    tag_event_on_roi(roi, state);
                 }
             }
         }

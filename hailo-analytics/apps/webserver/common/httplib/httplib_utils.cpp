@@ -58,6 +58,10 @@ class HTTPServer::Impl
     void set_mount_point(const std::string &mount_point, const std::string &path);
     void Get(const std::string &pattern, std::function<void()> callback);
     void Get(const std::string &pattern, std::function<nlohmann::json()> callback);
+    
+    // NEW: HTML Endpoint Support
+    void GetHtml(const std::string &pattern, std::function<std::string()> callback);
+
     void Put(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Patch(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Post(const std::string &pattern, std::function<void(const nlohmann::json &)> callback);
@@ -173,6 +177,12 @@ void HTTPServer::Unregister(const std::string &pattern)
     m_impl->Unregister(pattern);
 }
 
+// NEW: HTML Endpoint Support
+void HTTPServer::GetHtml(const std::string &pattern, std::function<std::string()> callback)
+{
+    m_impl->GetHtml(pattern, callback);
+}
+
 HTTPServer::Impl::Impl() : m_server()
 {
     initialize_routing_handler();
@@ -271,6 +281,13 @@ void HTTPServer::Impl::Get(const std::string &pattern, std::function<nlohmann::j
 {
     register_route(HTTPMethod::METHOD_GET, pattern, [callback](const httplib::Request &req, httplib::Response &res) {
         res.set_content(callback().dump(), "application/json");
+    });
+}
+
+// NEW: HTML Endpoint Support
+void HTTPServer::Impl::GetHtml(const std::string &pattern, std::function<std::string()> callback) {
+    register_route(HTTPMethod::METHOD_GET, pattern, [callback](const httplib::Request &req, httplib::Response &res) {
+        res.set_content(callback(), "text/html");
     });
 }
 

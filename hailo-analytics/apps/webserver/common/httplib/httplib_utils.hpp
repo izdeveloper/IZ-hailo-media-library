@@ -22,6 +22,10 @@ class HTTPServer
     void set_mount_point(const std::string &mount_point, const std::string &path);
     void Get(const std::string &pattern, std::function<void()> callback);
     void Get(const std::string &pattern, std::function<nlohmann::json()> callback);
+    
+    // NEW: HTML Endpoint Support
+    void GetHtml(const std::string &pattern, std::function<std::string()> callback);
+
     void Put(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Patch(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Post(const std::string &pattern, std::function<void(const nlohmann::json &)> callback);
