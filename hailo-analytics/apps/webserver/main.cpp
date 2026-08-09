@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
     WebserverResourceRepository resources =
         webserver::resources::ResourceRepository::create(*svr.get(), medialib_config_path);
 
-    auto pipeline_factory = std::make_unique<webserver::pipeline::PipelineFactory>(*resources, arch, pipeline_t::Basic);
+    auto pipeline_factory = std::make_unique<webserver::pipeline::PipelineFactory>(*resources, arch, pipeline_t::LPR);
 
     signal_utils::SignalHandler signal_handler;
     signal_handler.register_signal_handler([&pipeline_factory, &resources, &svr](int signal) {

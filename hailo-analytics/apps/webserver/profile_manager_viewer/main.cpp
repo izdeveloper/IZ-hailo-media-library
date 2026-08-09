@@ -205,9 +205,9 @@ int main(int argc, char *argv[])
     }
 
     // Start HTTP server
-    WEBSERVER_LOG_INFO("Profile Manager Viewer webserver starting on port 80");
+    WEBSERVER_LOG_INFO("Profile Manager Viewer webserver starting on port 8080");
     std::cout << "Profile Manager Viewer is running" << std::endl;
-    std::cout << "  - HTTP server: http://0.0.0.0:80" << std::endl;
+    std::cout << "  - HTTP server: http://0.0.0.0:8080" << std::endl;
 
     if (tuning_mode)
     {
@@ -221,7 +221,7 @@ int main(int argc, char *argv[])
     std::cout << "  - Config: " << medialib_config_path << std::endl;
     std::cout << "\nPress Ctrl+C to stop..." << std::endl;
 
-    svr->listen("0.0.0.0", 80);
+    svr->listen("0.0.0.0", 8080);
 
     WEBSERVER_LOG_INFO("HTTP server stopped");
     return 0;
