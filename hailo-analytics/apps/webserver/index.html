@@ -718,20 +718,32 @@
                 await postJSON('/api/v1/event-config', { max_events: max });
                 MAX_EVENTS = max;
                 alert("Server limit updated to " + max + " events.");
+                
+                // Immediately trim the currently loaded events to match the new smaller limit
+                if (cameraEventHistory.length > MAX_EVENTS) {
+                    cameraEventHistory = cameraEventHistory.slice(0, MAX_EVENTS);
+                }
+                
                 renderEventHistory();
+                renderLiveTable();
             } catch (e) { console.error("Failed to update limit", e); }
         }
 
+        // Fetches all saved events from the C++ Backend ONLY ONCE during page load
         async function loadEventsFromCameraDisk() {
             try {
                 const res = await fetch('/api/v1/saved-events');
                 if (res.ok) {
                     const data = await res.json();
                     if (Array.isArray(data)) {
-                        cameraEventHistory = data;
+                        
+                        // Reverse the array so the newest events are at the top (index 0)
+                        cameraEventHistory = data.reverse(); 
+                        
                         cameraEventHistory.forEach(ev => {
                             if (ev.transaction_guid) processedGuids.add(ev.transaction_guid);
                         });
+                        
                         if (document.getElementById('tab-eventsdb').classList.contains('active')) {
                             renderEventHistory();
                         }
@@ -855,10 +867,12 @@
             document.getElementById('imgModal').style.display = 'flex';
         }
 
+        // WebRTC Stream Connection
         async function initWebRtc() {
             const videoEl = document.getElementById('remoteVideo');
             const statusEl = document.getElementById('status');
             statusEl.innerText = "Connecting...";
+
             if (pc) pc.close();
 
             pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
@@ -876,15 +890,40 @@
 
             try {
                 const offerRes = await fetch('/Offer_RTC', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stream_name: 'main' })
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stream_name: 'main' })
                 });
                 const offer = await offerRes.json();
                 await pc.setRemoteDescription(offer.rtc_offer);
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
+
+                // Wait for the browser to gather network routing IPs (ICE candidates)
+                await new Promise((resolve) => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        // Max 2-second timeout fallback so it never hangs indefinitely
+                        const checkState = () => {
+                            if (pc.iceGatheringState === 'complete') {
+                                pc.removeEventListener('icegatheringstatechange', checkState);
+                                resolve();
+                            }
+                        };
+                        pc.addEventListener('icegatheringstatechange', checkState);
+                        setTimeout(resolve, 2000);
+                    }
+                });
+
+                // Send the updated description that now includes the ICE candidates
                 await fetch('/Response_RTC', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                        sdp: answer.sdp, type: answer.type, session_id: offer.session_id
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: pc.localDescription.sdp,
+                        type: pc.localDescription.type,
+                        session_id: offer.session_id
                     })
                 });
             } catch (err) {
@@ -896,6 +935,88 @@
         async function disableOSD() {
             try { await fetch('/osd', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ global_enable: false }) }); } catch (e) {}
         }
+
+        // --- ROI Control & Drawing Logic ---
+        function toggleROI(val) {
+            const isEnabled = (val === 'true');
+            document.getElementById('roi-controls').style.display = isEnabled ? 'block' : 'none';
+            document.getElementById('roi-draw-layer').style.display = isEnabled ? 'block' : 'none';
+            if (!isEnabled) {
+                resetROI();
+                document.getElementById('roi-selection').style.display = 'none';
+            } else {
+                applyROI();
+            }
+        }
+        function applyROI() {
+            const isEnabled = (document.getElementById('roi-enabled').value === 'true');
+            const x = parseFloat(document.getElementById('roi-x-num').value) / 100.0;
+            const y = parseFloat(document.getElementById('roi-y-num').value) / 100.0;
+            const width = parseFloat(document.getElementById('roi-w-num').value) / 100.0;
+            const height = parseFloat(document.getElementById('roi-h-num').value) / 100.0;
+            putJSON('/digital_zoom', {
+                enabled: isEnabled, mode: "DIGITAL_ZOOM_MODE_ROI", magnification: 1,
+                x: x, y: y, width: width, height: height
+            });
+        }
+        function resetROI() {
+            syncInput('roi-x-range', 0); syncInput('roi-x-num', 0);
+            syncInput('roi-y-range', 0); syncInput('roi-y-num', 0);
+            syncInput('roi-w-range', 100); syncInput('roi-w-num', 100);
+            syncInput('roi-h-range', 100); syncInput('roi-h-num', 100);
+            putJSON('/digital_zoom', {
+                enabled: false, mode: "DIGITAL_ZOOM_MODE_ROI", magnification: 1,
+                x: 0.0, y: 0.0, width: 1.0, height: 1.0
+            });
+        }
+
+        const drawLayer = document.getElementById('roi-draw-layer');
+        const selectionBox = document.getElementById('roi-selection');
+        let isDrawing = false, startX, startY;
+
+        drawLayer.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            const rect = drawLayer.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            selectionBox.style.left = startX + 'px';
+            selectionBox.style.top = startY + 'px';
+            selectionBox.style.width = '0px';
+            selectionBox.style.height = '0px';
+            selectionBox.style.display = 'block';
+        });
+        drawLayer.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const rect = drawLayer.getBoundingClientRect();
+            const currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+            const currentY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+            const left = Math.min(startX, currentX);
+            const top = Math.min(startY, currentY);
+            const width = Math.abs(currentX - startX);
+            const height = Math.abs(currentY - startY);
+            selectionBox.style.left = left + 'px';
+            selectionBox.style.top = top + 'px';
+            selectionBox.style.width = width + 'px';
+            selectionBox.style.height = height + 'px';
+        });
+        drawLayer.addEventListener('mouseup', (e) => {
+            if (!isDrawing) return;
+            isDrawing = false;
+            const rect = drawLayer.getBoundingClientRect();
+            let xPct = (parseFloat(selectionBox.style.left) / rect.width) * 100;
+            let yPct = (parseFloat(selectionBox.style.top) / rect.height) * 100;
+            let wPct = (parseFloat(selectionBox.style.width) / rect.width) * 100;
+            let hPct = (parseFloat(selectionBox.style.height) / rect.height) * 100;
+            xPct = Math.max(0, Math.min(90, xPct));
+            yPct = Math.max(0, Math.min(90, yPct));
+            wPct = Math.max(10, Math.min(100, wPct));
+            hPct = Math.max(10, Math.min(100, hPct));
+            syncInput('roi-x-num', xPct.toFixed(1)); syncInput('roi-x-range', xPct.toFixed(1));
+            syncInput('roi-y-num', yPct.toFixed(1)); syncInput('roi-y-range', yPct.toFixed(1));
+            syncInput('roi-w-num', wPct.toFixed(1)); syncInput('roi-w-range', wPct.toFixed(1));
+            syncInput('roi-h-num', hPct.toFixed(1)); syncInput('roi-h-range', hPct.toFixed(1));
+            applyROI();
+        });
 
         async function switchPipeline(pipelineName) {
             try {
@@ -934,14 +1055,83 @@
             } catch (e) {}
         }
 
+        // Generic API Helpers
         async function postJSON(url, data) { try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) {} }
+        async function putJSON(url, data) { try { await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) {} }
+
+        // --- ALL RESTORED ISP FUNCTIONS START HERE ---
+        function applyISP() {
+            const b = parseInt(document.getElementById('isp-bright-num').value);
+            const c = parseInt(document.getElementById('isp-contrast-num').value);
+            const s = parseInt(document.getElementById('isp-sat-num').value);
+            postJSON('/isp/stream_params', { brightness: b, contrast: c, saturation: s, sharpness: 50 });
+        }
+        
+        async function toggleAutoISP(val) {
+            const isAuto = (val === 'true');
+            document.getElementById('isp-bright-range').disabled = isAuto;
+            document.getElementById('isp-bright-num').disabled = isAuto;
+            document.getElementById('isp-contrast-range').disabled = isAuto;
+            document.getElementById('isp-contrast-num').disabled = isAuto;
+            document.getElementById('isp-sat-range').disabled = isAuto;
+            document.getElementById('isp-sat-num').disabled = isAuto;
+            await postJSON('/isp/filters_manual_state', { "auto": isAuto });
+        }
+        
+        async function fetchISP() {
+            try {
+                const autoRes = await fetch('/isp/filters_manual_state');
+                if (autoRes.ok) {
+                    const autoData = await autoRes.json();
+                    const isAutoStr = autoData.auto.toString();
+                    document.getElementById('isp-auto').value = isAutoStr;
+                    document.getElementById('isp-bright-range').disabled = autoData.auto;
+                    document.getElementById('isp-bright-num').disabled = autoData.auto;
+                    document.getElementById('isp-contrast-range').disabled = autoData.auto;
+                    document.getElementById('isp-contrast-num').disabled = autoData.auto;
+                    document.getElementById('isp-sat-range').disabled = autoData.auto;
+                    document.getElementById('isp-sat-num').disabled = autoData.auto;
+                }
+                const res = await fetch('/isp/stream_params');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('isp-bright-range').value = data.brightness;
+                    document.getElementById('isp-bright-num').value = data.brightness;
+                    document.getElementById('isp-contrast-range').value = data.contrast;
+                    document.getElementById('isp-contrast-num').value = data.contrast;
+                    document.getElementById('isp-sat-range').value = data.saturation;
+                    document.getElementById('isp-sat-num').value = data.saturation;
+                }
+            } catch (err) { console.error("Failed to load ISP settings", err); }
+        }
+
+        function toggleAutoExposure(val) {
+            const isAuto = (val === 'true');
+            document.getElementById('manual-exposure-controls').style.display = isAuto ? 'none' : 'block';
+            postJSON('/isp/auto_exposure', {
+                enabled: isAuto,
+                gain: parseInt(document.getElementById('ae-gain-num').value),
+                integration_time: parseInt(document.getElementById('ae-time-num').value),
+                backlight: 0
+            });
+        }
+        
+        function applyManualExposure() {
+            const gainVal = parseInt(document.getElementById('ae-gain-num').value);
+            const timeVal = parseInt(document.getElementById('ae-time-num').value);
+            postJSON('/isp/auto_exposure', {
+                enabled: false,
+                gain: gainVal,
+                integration_time: timeVal,
+                backlight: 0
+            });
+        }
+        // --- ALL RESTORED ISP FUNCTIONS END HERE ---
         
         function applyEncoder() {
             const rc = document.getElementById('enc-rc').value || 'VBR';
-            // Set a safe WebRTC default bitrate (e.g., 4000 Kbps = 4 Mbps)
-            const br = parseInt(document.getElementById('enc-bitrate').value) || 4000; 
+            const br = parseInt(document.getElementById('enc-bitrate').value) || 2500; 
             
-            // FIX: DO NOT multiply by 1000 here. The backend expects Kbps directly.
             postJSON('/encoder', {
                 intra_pic_rate: 30,
                 quantization: { rc_mode: rc, bitrate: br }
@@ -953,11 +1143,11 @@
         window.onload = async () => {
             disableOSD();
             checkPipelineStatus();
-            await loadEventConfig(); // Load server limit before fetching data
+            await loadEventConfig();
+            fetchISP(); // Triggers the fully restored ISP data fetch function
             initWebRtc();
             await loadEventsFromCameraDisk();
 
-            // Nudge the encoder to generate an I-Frame so the WebRTC stream renders
             setTimeout(() => {
                 applyEncoder();
             }, 1000);
