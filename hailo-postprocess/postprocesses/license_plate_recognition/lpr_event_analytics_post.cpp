@@ -79,13 +79,29 @@ int levenshtein_distance(const std::string& s1, const std::string& s2) {
 
 bool is_valid_plate_format(const std::string& text) {
     if (text.empty() || text[0] == '0') return false; 
+    
     std::string clean_text = "";
+    bool has_letter = false; // Track if we encounter any letters
+    
     for (char c : text) {
-        if (std::isalnum(static_cast<unsigned char>(c))) clean_text += c;
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            clean_text += c;
+            if (std::isalpha(static_cast<unsigned char>(c))) {
+                has_letter = true;
+            }
+        }
     }
+    
     size_t length = clean_text.length();
     if (length == 0) return false;
-    if (length < 7) return std::isalpha(static_cast<unsigned char>(clean_text[0]));
+    
+    // Condition: If length is less than 7 or greater than 8, it MUST contain a letter
+    if (length < 7 || length > 8) {
+        if (!has_letter) {
+            return false;
+        }
+    }
+    
     return true;
 }
 
