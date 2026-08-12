@@ -150,3 +150,5 @@ ninja -C build
 ```
 
 Then you will see the compiled files inside the build dirs 
+
+### Importent node: For every model there is config json file that you can change but make sure this fit the model labels, In the lpr_event_sink json you can config the ip that the events will be send to this ip addresss 
