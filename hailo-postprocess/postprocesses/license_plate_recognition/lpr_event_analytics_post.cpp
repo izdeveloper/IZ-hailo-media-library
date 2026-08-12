@@ -20,8 +20,8 @@
 static constexpr float CONFIG_MIN_WIDTH = 0.01f;
 static constexpr float CONFIG_MAX_WIDTH = 0.90f;
 static constexpr float CONFIG_MIN_CONF = 0.85f;         
-static constexpr uint32_t CONFIG_MIN_FRAMES = 5;       // Minimum frames before eligible
-static constexpr uint32_t CONFIG_MAX_FRAMES = 10;      // Maximum frames to wait for optimal voting
+static constexpr uint32_t CONFIG_MIN_FRAMES = 3;       // Minimum frames before eligible
+static constexpr uint32_t CONFIG_MAX_FRAMES = 8;      // Maximum frames to wait for optimal voting
 static constexpr int CONFIG_TRACK_TIMEOUT_MS = 500;    // Dispatch immediately if lost sight after min_frames
 static constexpr int CONFIG_STATE_TTL_SECONDS = 30;     
 static constexpr int CONFIG_DISPATCH_COOLDOWN_SECONDS = 30; 
