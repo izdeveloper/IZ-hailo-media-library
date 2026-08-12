@@ -46,7 +46,7 @@ The webserver variant is in [IZ-hailo-media-library/hailo-analytics/apps/webserv
 
 The server selects the `LPR` pipeline when the webserver starts, then builds the same multi-stage LPR flow as the standalone app:
 
-- `tiling_pipeline`
+- `tiling_pipeline` (the defaule tiling pipeline from hailo)
 - `vehicle_attributes_pipeline`
 - `classification_pipeline`
 - `ocr_pipeline`
