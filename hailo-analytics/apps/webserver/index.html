@@ -176,7 +176,8 @@
 
         .control-item select,
         .control-item input[type="text"],
-        .control-item input[type="number"] {
+        .control-item input[type="number"],
+        .control-item input[type="date"] {
             width: 100%;
             padding: 6px 10px;
             border: 1px solid var(--border);
@@ -630,14 +631,41 @@
                 <div id="tab-eventsdb" class="tab-pane">
                     <div class="db-header">
                         <span id="db-count">0 Events</span>
-                        <button class="btn btn-danger btn-sm" onclick="clearEventDB()">Clear DB</button>
+                        <div>
+                            <button class="btn btn-primary btn-sm" onclick="downloadDataset()">Download JSON</button>
+                            <button class="btn btn-danger btn-sm" onclick="clearEventDB()">Clear DB</button>
+                        </div>
                     </div>
                     
-                    <!-- NEW: Server Limit Configuration -->
+                    <!-- Server Limit Configuration -->
                     <div class="control-item" style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
                         <label style="margin: 0; flex: 1;">Max Events to Save:</label>
                         <input type="number" id="max-events-input" value="1000" style="width: 80px;">
-                        <button class="btn btn-primary btn-sm" onclick="updateMaxEvents()">Save Limit</button>
+                        <button class="btn btn-primary btn-sm" onclick="updateMaxEvents()">Save</button>
+                    </div>
+
+                    <!-- Filter Section Restructured to be stacked -->
+                    <div class="filter-section" style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border: 1px solid var(--border); border-radius: 6px;">
+                        <h4 style="font-size: 13px; color: var(--primary); margin-bottom: 12px;">Filter Database</h4>
+                        
+                        <div class="control-item" style="margin-bottom: 10px;">
+                            <label>Date</label>
+                            <input type="date" id="filter-date" onchange="applyFilters()">
+                        </div>
+                        <div class="control-item" style="margin-bottom: 10px;">
+                            <label>Plate Number</label>
+                            <input type="text" id="filter-plate" placeholder="e.g. ABC1234" onkeyup="applyFilters()">
+                        </div>
+                        <div class="control-item" style="margin-bottom: 10px;">
+                            <label>Color</label>
+                            <input type="text" id="filter-color" placeholder="e.g. Red" onkeyup="applyFilters()">
+                        </div>
+                        <div class="control-item" style="margin-bottom: 12px;">
+                            <label>Vehicle Type</label>
+                            <input type="text" id="filter-type" placeholder="e.g. SUV" onkeyup="applyFilters()">
+                        </div>
+                        
+                        <button class="btn btn-primary btn-sm" style="width: 100%; padding: 8px;" onclick="clearFilters()">Reset Filters</button>
                     </div>
 
                     <div id="history-list">
@@ -719,7 +747,6 @@
                 MAX_EVENTS = max;
                 alert("Server limit updated to " + max + " events.");
                 
-                // Immediately trim the currently loaded events to match the new smaller limit
                 if (cameraEventHistory.length > MAX_EVENTS) {
                     cameraEventHistory = cameraEventHistory.slice(0, MAX_EVENTS);
                 }
@@ -737,7 +764,6 @@
                     const data = await res.json();
                     if (Array.isArray(data)) {
                         
-                        // Reverse the array so the newest events are at the top (index 0)
                         cameraEventHistory = data.reverse(); 
                         
                         cameraEventHistory.forEach(ev => {
@@ -761,19 +787,35 @@
             renderEventHistory();
         }
 
-        function renderEventHistory() {
+        // Download JSON format database
+        function downloadDataset() {
+            if (cameraEventHistory.length === 0) {
+                alert("No events to download.");
+                return;
+            }
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cameraEventHistory, null, 2));
+            const downloadElement = document.createElement('a');
+            downloadElement.setAttribute("href", dataStr);
+            downloadElement.setAttribute("download", "events_database.json");
+            document.body.appendChild(downloadElement);
+            downloadElement.click();
+            downloadElement.remove();
+        }
+
+        // Updated rendering to take an optional array (for filtering)
+        function renderEventHistory(eventsToRender = cameraEventHistory) {
             const historyList = document.getElementById('history-list');
             if (!historyList) return;
 
-            document.getElementById('db-count').innerText = `${cameraEventHistory.length} / ${MAX_EVENTS} Events`;
+            document.getElementById('db-count').innerText = `${eventsToRender.length} / ${MAX_EVENTS} Events`;
 
-            if (cameraEventHistory.length === 0) {
-                historyList.innerHTML = '<div class="off-banner">No events saved.</div>';
+            if (eventsToRender.length === 0) {
+                historyList.innerHTML = '<div class="off-banner">No events found.</div>';
                 return;
             }
 
             let html = '';
-            cameraEventHistory.forEach(ev => {
+            eventsToRender.forEach(ev => {
                 const lpr = (ev.lpr_results && ev.lpr_results.length > 0) ? ev.lpr_results[0] : {};
                 const veh = (ev.vehicles && ev.vehicles.length > 0) ? ev.vehicles[0] : {};
                 let imgSrc = null;
@@ -800,6 +842,46 @@
                 </div>`;
             });
             historyList.innerHTML = html;
+        }
+
+        // Apply filters dynamically
+        function applyFilters() {
+            const dateFilter = document.getElementById('filter-date').value;
+            const plateFilter = document.getElementById('filter-plate').value.toLowerCase();
+            const colorFilter = document.getElementById('filter-color').value.toLowerCase();
+            const typeFilter = document.getElementById('filter-type').value.toLowerCase();
+
+            const filteredEvents = cameraEventHistory.filter(ev => {
+                const lpr = (ev.lpr_results && ev.lpr_results.length > 0) ? ev.lpr_results[0] : {};
+                const veh = (ev.vehicles && ev.vehicles.length > 0) ? ev.vehicles[0] : {};
+
+                let evDate = "";
+                if (ev.transaction_timestamp && ev.transaction_timestamp !== 'N/A') {
+                    const d = new Date(ev.transaction_timestamp);
+                    if (!isNaN(d)) {
+                        const offset = d.getTimezoneOffset() * 60000;
+                        evDate = new Date(d.getTime() - offset).toISOString().split('T')[0];
+                    }
+                }
+
+                const matchDate = !dateFilter || evDate === dateFilter;
+                const matchPlate = !plateFilter || (lpr.plate_read && lpr.plate_read.toLowerCase().includes(plateFilter));
+                const matchColor = !colorFilter || (veh.color && veh.color.toLowerCase().includes(colorFilter));
+                const matchType = !typeFilter || (veh.vehicle_class && veh.vehicle_class.toLowerCase().includes(typeFilter));
+
+                return matchDate && matchPlate && matchColor && matchType;
+            });
+
+            renderEventHistory(filteredEvents);
+        }
+
+        // Reset Filters
+        function clearFilters() {
+            document.getElementById('filter-date').value = '';
+            document.getElementById('filter-plate').value = '';
+            document.getElementById('filter-color').value = '';
+            document.getElementById('filter-type').value = '';
+            renderEventHistory(cameraEventHistory);
         }
 
         function renderLiveTable() {
@@ -848,7 +930,10 @@
                     if (cameraEventHistory.length > MAX_EVENTS) {
                         cameraEventHistory = cameraEventHistory.slice(0, MAX_EVENTS);
                     }
-                    if (document.getElementById('tab-eventsdb').classList.contains('active')) renderEventHistory();
+                    if (document.getElementById('tab-eventsdb').classList.contains('active')) {
+                        // Apply filters dynamically if new events roll in
+                        applyFilters();
+                    }
                     renderLiveTable();
                 }
             } catch (err) {}
@@ -859,7 +944,7 @@
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
             event.currentTarget.classList.add('active');
             document.getElementById(tabId).classList.add('active');
-            if (tabId === 'tab-eventsdb') renderEventHistory();
+            if (tabId === 'tab-eventsdb') applyFilters(); // Ensure filters are applied when returning to tab
         }
         function syncInput(targetId, val) { document.getElementById(targetId).value = val; }
         function openImageModal(src) {
