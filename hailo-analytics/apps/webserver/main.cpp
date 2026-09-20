@@ -19,6 +19,93 @@
 
 static std::atomic<bool> g_webserver_stopping{false};
 
+
+void start_day_night_auto_switcher()
+{
+    std::thread([]() {
+        // Initial boot delay to let media pipeline and WebRTC stabilize
+        for (int i = 0; i < 15 && !g_webserver_stopping; ++i) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        httplib::Client cli("127.0.0.1", 8000);
+        cli.set_connection_timeout(5);
+        cli.set_read_timeout(5);
+
+        bool is_night_mode = false;
+
+        const uint32_t NIGHT_THRESHOLD_TIME   = 15000; // Trigger night mode (>15ms)
+        const uint32_t DAY_THRESHOLD_TIME     = 11000;  // Trigger day mode (<8ms)
+        const uint32_t NIGHT_INTEGRATION_TIME = 11000; // 12ms capped night exposure
+        const uint32_t NIGHT_GAIN             = 4;  // Boosted gain for YOLO
+
+        const int CHECK_INTERVAL_MINUTES = 10;
+
+        while (!g_webserver_stopping) {
+            try {
+                if (!is_night_mode) {
+                    // Daytime Check: AE is already Auto; just query current exposure time
+                    auto res = cli.Get("/isp/auto_exposure");
+                    if (res && res->status == 200) {
+                        auto j = nlohmann::json::parse(res->body);
+                        uint32_t integration_time = j.value("integration_time", 0);
+
+                        if (integration_time > NIGHT_THRESHOLD_TIME) {
+                            WEBSERVER_LOG_INFO("Auto-Switcher: Low light ({}), applying manual night cap", integration_time);
+                            
+                            nlohmann::json ae_night_body = {
+                                {"enabled", false},
+                                {"integration_time", NIGHT_INTEGRATION_TIME},
+                                {"gain", NIGHT_GAIN},
+                                {"backlight", 0}
+                            };
+                            cli.Post("/isp/auto_exposure", ae_night_body.dump(), "application/json");
+                            is_night_mode = true;
+                        }
+                    }
+                } else {
+                    // Morning Probing: Enable Auto AE to measure ambient light
+                    nlohmann::json probe_body = {{"enabled", true}, {"gain", 0}, {"integration_time", 0}, {"backlight", 0}};
+                    cli.Post("/isp/auto_exposure", probe_body.dump(), "application/json");
+
+                    // Wait 4 seconds for hardware 3A algorithm and frame buffers to converge smoothly
+                    for (int i = 0; i < 4 && !g_webserver_stopping; ++i) {
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                    }
+
+                    auto res = cli.Get("/isp/auto_exposure");
+                    if (res && res->status == 200) {
+                        auto j = nlohmann::json::parse(res->body);
+                        uint32_t integration_time = j.value("integration_time", 0);
+
+                        if (integration_time < DAY_THRESHOLD_TIME) {
+                            WEBSERVER_LOG_INFO("Auto-Switcher: Daylight ({}), returning to Auto AE", integration_time);
+                            is_night_mode = false;
+                        } else {
+                            // Still dark: re-apply manual night exposure cap
+                            WEBSERVER_LOG_INFO("Auto-Switcher: Still dark ({}), re-applying night cap", integration_time);
+                            nlohmann::json ae_night_body = {
+                                {"enabled", false},
+                                {"integration_time", NIGHT_INTEGRATION_TIME},
+                                {"gain", NIGHT_GAIN},
+                                {"backlight", 0}
+                            };
+                            cli.Post("/isp/auto_exposure", ae_night_body.dump(), "application/json");
+                        }
+                    }
+                }
+            } catch (const std::exception &e) {
+                WEBSERVER_LOG_ERROR("Auto-Switcher exception: {}", e.what());
+            }
+
+            // Sleep 30 minutes in 1-second chunks so the thread exits cleanly on application shutdown
+            for (int i = 0; i < CHECK_INTERVAL_MINUTES * 60 && !g_webserver_stopping; ++i) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+    }).detach();
+}
+
 bool is_device_in_use(const std::string &device_path)
 {
     struct stat dev_stat;
@@ -163,5 +250,8 @@ int main(int argc, char *argv[])
     pipeline_factory->get_current_pipeline()->start();
 
     WEBSERVER_LOG_INFO("Webserver started");
+
+    start_day_night_auto_switcher();
+
     svr->listen("0.0.0.0", 8000);
 }

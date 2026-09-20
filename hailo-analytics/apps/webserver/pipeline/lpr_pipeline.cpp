@@ -39,28 +39,36 @@ static std::deque<nlohmann::json> g_recent_events;
 
 static size_t g_max_saved_events = 1000;
 
-static void save_event_to_db_safely(const nlohmann::json& new_event) {
+static void save_event_to_db_safely(const nlohmann::json &new_event)
+{
     std::lock_guard<std::mutex> lock(g_db_mutex);
 
     // 1. Update in-memory cache for the live UI polling
     g_recent_events.push_back(new_event);
-    if (g_recent_events.size() > 20) {
+    if (g_recent_events.size() > 20)
+    {
         g_recent_events.pop_front();
     }
 
     // 2. Read existing events from disk
     nlohmann::json db = nlohmann::json::array();
     std::ifstream infile(DB_FILE_PATH);
-    if (infile.is_open()) {
-        try {
+    if (infile.is_open())
+    {
+        try
+        {
             infile >> db;
-        } catch (...) {}
+        }
+        catch (...)
+        {
+        }
         infile.close();
     }
 
     // 3. Append the new event and enforce the server-side limit
     db.push_back(new_event);
-    while (db.size() > g_max_saved_events) {
+    while (db.size() > g_max_saved_events)
+    {
         db.erase(0); // Drop the oldest events
     }
 
@@ -72,18 +80,22 @@ static void save_event_to_db_safely(const nlohmann::json& new_event) {
 // =========================================================================
 // Bounded Worker Queue
 // =========================================================================
-class EventUploader {
+class EventUploader
+{
 public:
-    static EventUploader& get_instance() {
+    static EventUploader &get_instance()
+    {
         static EventUploader instance;
         return instance;
     }
 
-    void enqueue_task(std::function<void()> task) {
+    void enqueue_task(std::function<void()> task)
+    {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_queue.size() >= MAX_QUEUE_SIZE) {
-                m_queue.pop(); 
+            if (m_queue.size() >= MAX_QUEUE_SIZE)
+            {
+                m_queue.pop();
                 std::cerr << "[LPR_SINK] WARNING: Queue full. Dropping oldest event." << std::endl;
             }
             m_queue.push(std::move(task));
@@ -92,8 +104,10 @@ public:
     }
 
 private:
-    EventUploader() : m_stop(false) {
-        m_worker = std::thread([this]() {
+    EventUploader() : m_stop(false)
+    {
+        m_worker = std::thread([this]()
+                               {
             while (true) {
                 std::function<void()> task;
                 {
@@ -108,17 +122,18 @@ private:
                 } catch (const std::exception& e) {
                     std::cerr << "[LPR_SINK] Task Exception: " << e.what() << std::endl;
                 }
-            }
-        });
+            } });
     }
 
-    ~EventUploader() {
+    ~EventUploader()
+    {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_stop = true;
         }
         m_cv.notify_all();
-        if (m_worker.joinable()) m_worker.join();
+        if (m_worker.joinable())
+            m_worker.join();
     }
 
     std::mutex m_mutex;
@@ -129,43 +144,79 @@ private:
     const size_t MAX_QUEUE_SIZE = 50;
 };
 
-static std::string get_target_inex_url() {
+static std::string get_target_inex_url()
+{
     std::ifstream file(CONFIG_JSON_PATH);
     std::string ip = "127.0.0.1";
     std::string port = "8080";
-    if (file.is_open()) {
+    if (file.is_open())
+    {
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
         std::regex ip_regex("\"http_endpoint_ip\"\\s*:\\s*\"([^\"]+)\"");
         std::regex port_regex("\"http_endpoint_port\"\\s*:\\s*(\\d+)");
         std::smatch match;
-        if (std::regex_search(content, match, ip_regex) && match.size() > 1) ip = match[1].str();
-        if (std::regex_search(content, match, port_regex) && match.size() > 1) port = match[1].str();
+        if (std::regex_search(content, match, ip_regex) && match.size() > 1)
+            ip = match[1].str();
+        if (std::regex_search(content, match, port_regex) && match.size() > 1)
+            port = match[1].str();
     }
     return "http://" + ip + ":" + port + "/api/v1/lpr-events?cmd=uploadevent&api_version=1.7";
 }
 
 LprPipeline::LprPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
                          RTPConverterStage &webrtc_stage, Architecture platform)
-    : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, {ProfileType::Daylight}) {}
+    : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, 
+                   {ProfileType::Daylight, ProfileType::LowlightBayer}) {}
 
 std::string LprPipeline::pipeline_name() const { return "LPR"; }
-std::string LprPipeline::get_profile_name_by_type(ProfileType type) const { return "Daylight_FaceLandmarks"; }
-ProfileType LprPipeline::get_profile_type_by_name(const std::string &name) const { return ProfileType::Daylight; }
+std::string LprPipeline::get_profile_name_by_type(ProfileType type) const
+{
+    switch (type)
+    {
+    case ProfileType::Daylight:
+        return "Daylight_FaceLandmarks"; 
+    case ProfileType::LowlightBayer:
+        return "Lowlight_Bayer_FaceLandmarks"; 
+    case ProfileType::Lowlight:
+        return "Lowlight_FaceLandmarks";
+    case ProfileType::HighDynamicRange:
+        return "High_Dynamic_Range_FaceLandmarks";
+    default:
+        throw std::runtime_error("Profile type not supported in LPR Pipeline");
+    }
+}
 
-void LprPipeline::start() {
+ProfileType LprPipeline::get_profile_type_by_name(const std::string &name) const
+{
+    if (name == "Daylight_FaceLandmarks")
+        return ProfileType::Daylight;
+    else if (name == "Lowlight_Bayer_FaceLandmarks")
+        return ProfileType::LowlightBayer;
+    else if (name == "Lowlight_FaceLandmarks")
+        return ProfileType::Lowlight;
+    else if (name == "High_Dynamic_Range_FaceLandmarks")
+        return ProfileType::HighDynamicRange;
+    else
+        throw std::runtime_error("Profile name not supported in LPR Pipeline: " + name);
+}
+
+void LprPipeline::start()
+{
     WEBSERVER_LOG_INFO("Starting LPR pipeline");
     build_pipeline();
     BasePipeline::start();
 }
 
-void LprPipeline::register_endpoints() {
+void LprPipeline::register_endpoints()
+{
     BasePipeline::register_endpoints();
 
     // 1. Full History Endpoint (RAW TEXT STREAMING)
-    // By using GetHtml we read the 25MB file as a raw string and stream it to the UI. 
+    // By using GetHtml we read the 25MB file as a raw string and stream it to the UI.
     // Bypassing nlohmann::json entirely prevents the AST memory explosion that crashed the board.
-    m_resources.m_srv.GetHtml("/api/v1/saved-events", std::function<std::string()>([]() {
+    m_resources.m_srv.GetHtml("/api/v1/saved-events", std::function<std::string()>([]()
+                                                                                   {
         std::lock_guard<std::mutex> lock(g_db_mutex);
         std::ifstream infile(DB_FILE_PATH, std::ios::in | std::ios::binary);
         if (infile.is_open()) {
@@ -177,61 +228,64 @@ void LprPipeline::register_endpoints() {
             infile.close();
             return contents;
         }
-        return std::string("[]");
-    }));
+        return std::string("[]"); }));
 
     // 2. Clear Database Endpoint
-    m_resources.m_srv.Delete("/api/v1/saved-events", std::function<nlohmann::json(const nlohmann::json&)>([ ](const nlohmann::json &j_body) {
+    m_resources.m_srv.Delete("/api/v1/saved-events", std::function<nlohmann::json(const nlohmann::json &)>([](const nlohmann::json &j_body)
+                                                                                                           {
         std::lock_guard<std::mutex> lock(g_db_mutex);
         std::ofstream outfile(DB_FILE_PATH);
         outfile << "[]";
         outfile.close();
         g_recent_events.clear(); // Empty RAM cache
-        return nlohmann::json{{"status", "success"}};
-    }));
+        return nlohmann::json{{"status", "success"}}; }));
 
     // 3. Live Polling Endpoint (NO DISK READS)
-    m_resources.m_srv.Get("/api/v1/lpr-events", std::function<nlohmann::json()>([]() {
+    m_resources.m_srv.Get("/api/v1/lpr-events", std::function<nlohmann::json()>([]()
+                                                                                {
         std::lock_guard<std::mutex> lock(g_db_mutex);
         nlohmann::json recent = nlohmann::json::array();
         for (const auto& ev : g_recent_events) {
             recent.push_back(ev);
         }
-        return recent;
-    }));
+        return recent; }));
 
     // Event Configuration Endpoints
-    m_resources.m_srv.Get("/api/v1/event-config", std::function<nlohmann::json()>([]() {
-        return nlohmann::json{{"max_events", g_max_saved_events}};
-    }));
+    m_resources.m_srv.Get("/api/v1/event-config", std::function<nlohmann::json()>([]()
+                                                                                  { return nlohmann::json{{"max_events", g_max_saved_events}}; }));
 
-    m_resources.m_srv.Post("/api/v1/event-config", std::function<nlohmann::json(const nlohmann::json&)>([ ](const nlohmann::json &j_body) {
+    m_resources.m_srv.Post("/api/v1/event-config", std::function<nlohmann::json(const nlohmann::json &)>([](const nlohmann::json &j_body)
+                                                                                                         {
         if (j_body.contains("max_events")) {
             std::lock_guard<std::mutex> lock(g_db_mutex);
             g_max_saved_events = j_body["max_events"].get<size_t>();
         }
-        return nlohmann::json{{"status", "success"}};
-    }));
+        return nlohmann::json{{"status", "success"}}; }));
 }
 
-void LprPipeline::unregister_endpoints() {
+void LprPipeline::unregister_endpoints()
+{
     m_resources.m_srv.Unregister("/api/v1/saved-events");
     m_resources.m_srv.Unregister("/api/v1/lpr-events");
     BasePipeline::unregister_endpoints();
 }
 
-void LprPipeline::build_pipeline() {
+void LprPipeline::build_pipeline()
+{
     WEBSERVER_LOG_INFO("Building LPR pipeline");
 
     m_app_resources->valve_stage = std::make_shared<ValveStage>("valve", 1);
     m_app_resources->freeze_stage = std::make_shared<FreezeStage>("freeze", 1);
 
     auto webrtc_sink_stage = AppSinkStageBuild::create()
-        .set_stage_name("webrtc_sink")
-        .set_queue_size_opt(1)
-        .set_leaky_opt(false)
-        .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf) { m_webrtc_stage.process(buf); })
-        .buildptr();
+                                 .set_stage_name("webrtc_sink")
+                                 .set_queue_size_opt(1)
+                                 .set_leaky_opt(false)
+                                 .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf)
+                                                   { 
+            if (!buf) return;
+            m_webrtc_stage.process(buf); })
+                                 .buildptr();
 
     auto tiling_pipeline = lpr_app::build_tiling_pipeline("tiling_pipeline", lpr_app::TrackingMode::BALANCED).value();
     auto veh_attrs_pipeline = lpr_app::build_vehicle_attributes_pipeline("vehicle_attributes_pipeline").value();
@@ -239,19 +293,22 @@ void LprPipeline::build_pipeline() {
     auto ocr_pipeline = lpr_app::build_ocr_pipeline("ocr_pipeline").value();
 
     auto event_engine_stage = PostprocessStageBuild::create()
-        .set_stage_name("lpr_event_engine_post")
-        .set_so_path("/usr/lib/hailo-post-processes/liblpr_event_analytics_post.so")
-        .set_function_name_opt("filter")
-        .set_queue_size_opt(5)
-        .set_leaky_opt(false)
-        .buildptr();
+                                  .set_stage_name("lpr_event_engine_post")
+                                  .set_so_path("/usr/lib/hailo-post-processes/liblpr_event_analytics_post.so")
+                                  .set_function_name_opt("filter")
+                                  .set_queue_size_opt(5)
+                                  .set_leaky_opt(false)
+                                  .buildptr();
 
     int ai_width = 1920;
     int ai_height = 1080;
     auto output_streams = m_app_resources->media_library.m_frontend->get_outputs_streams();
-    if (output_streams.has_value()) {
-        for (const auto &stream : output_streams.value()) {
-            if (stream.id == "sink2") {
+    if (output_streams.has_value())
+    {
+        for (const auto &stream : output_streams.value())
+        {
+            if (stream.id == "sink2")
+            {
                 ai_width = stream.width;
                 ai_height = stream.height;
                 break;
@@ -260,13 +317,16 @@ void LprPipeline::build_pipeline() {
     }
 
     auto lpr_event_sink = AppSinkStageBuild::create()
-        .set_stage_name("lpr_event_sink")
-        .set_queue_size_opt(5)
-        .set_leaky_opt(true)
-        .set_process_func([ai_width, ai_height](hailo_analytics::pipeline::BufferPtr buf) {
+                              .set_stage_name("lpr_event_sink")
+                              .set_queue_size_opt(5)
+                              .set_leaky_opt(true)
+                              .set_process_func([ai_width, ai_height](hailo_analytics::pipeline::BufferPtr buf)
+                                                {
             if (!buf) return;
+
             HailoROIPtr roi = buf->get_roi();
             if (!roi) return;
+
             std::string event_json_str = "";
             for (const auto& obj : roi->get_objects()) {
                 if (obj->get_type() == HAILO_CLASSIFICATION) {
@@ -277,6 +337,7 @@ void LprPipeline::build_pipeline() {
                     }
                 }
             }
+
             if (!event_json_str.empty()) {
                 std::cout << "\n[LPR_SINK] Found INEX event tag. Fast-copying frame..." << std::endl;
                 std::vector<uint8_t> y_copy;
@@ -306,17 +367,21 @@ void LprPipeline::build_pipeline() {
                             data_uv = mmap(NULL, map_size_uv, PROT_READ, MAP_SHARED, fd_uv, 0);
                         }
 
+                        // Safely copy data if mappings succeeded
                         if (data_y != MAP_FAILED) {
                             if (fd_uv >= 0 && data_uv != MAP_FAILED) {
                                 is_split_plane = true;
                                 y_copy.assign((uint8_t*)data_y, (uint8_t*)data_y + (ai_width * ai_height));
                                 uv_copy.assign((uint8_t*)data_uv, (uint8_t*)data_uv + (ai_width * ai_height / 2));
-                                munmap(data_uv, map_size_uv);
                             } else {
                                 y_copy.assign((uint8_t*)data_y, (uint8_t*)data_y + (ai_width * ai_height * 3 / 2));
                             }
-                            munmap(data_y, map_size_y);
                         }
+
+                        // Independent, safe unmapping to prevent memory leaks
+                        if (data_y != MAP_FAILED) munmap(data_y, map_size_y);
+                        if (data_uv != MAP_FAILED) munmap(data_uv, map_size_uv);
+
                         sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
                         ioctl(fd_y, DMA_BUF_IOCTL_SYNC, &sync);
                         if (fd_uv >= 0) ioctl(fd_uv, DMA_BUF_IOCTL_SYNC, &sync);
@@ -324,6 +389,8 @@ void LprPipeline::build_pipeline() {
                 }
 
                 EventUploader::get_instance().enqueue_task([event_json_str, y_copy = std::move(y_copy), uv_copy = std::move(uv_copy), is_split_plane, ai_width, ai_height]() {
+                    // ... [Your existing OpenCV and HTTP logic remains identical here] ...
+                    
                     std::string base64_image = "";
                     if (!y_copy.empty()) {
                         try {
@@ -337,7 +404,6 @@ void LprPipeline::build_pipeline() {
                                 cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR_NV12);
                             }
                             
-                            // Reverted back to 720p for full-size viewing
                             cv::Mat resized_bgr;
                             cv::resize(bgr, resized_bgr, cv::Size(1280, 720));
                             
@@ -369,7 +435,6 @@ void LprPipeline::build_pipeline() {
                         {"image_encoding", "jpeg"}
                     }});
 
-                    // Use the new O(1) Memory Smart Append function
                     save_event_to_db_safely(new_db_entry);
 
                     std::string target_upload_url = get_target_inex_url();
@@ -401,38 +466,38 @@ void LprPipeline::build_pipeline() {
                         std::cerr << "[LPR_SINK] HTTP Client Exception: " << e.what() << std::endl;
                     }
                 });
-            }
-        }).buildptr();
+            } })
+                              .buildptr();
 
     m_app_resources->pipeline = hailo_analytics::pipeline::PipelineBuilder()
-        .add_stage("frontend", configure_frontend(), hailo_analytics::pipeline::StageType::SOURCE)
-        .add_stage("freeze", m_app_resources->freeze_stage)
-        .add_stage("valve", m_app_resources->valve_stage)
-        .add_stage("encoder", configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME))
-        .add_stage("vision_tee", std::make_shared<TeeStage>("vision_tee", 2, false, false))
-        .add_stage("udp", configure_udp(DEFAULT_STREAM_4K_NAME), hailo_analytics::pipeline::StageType::SINK)
-        .add_stage("webrtc_sink", webrtc_sink_stage, hailo_analytics::pipeline::StageType::SINK)
-        .add_stage(tiling_pipeline)
-        .add_stage(veh_attrs_pipeline)
-        .add_stage(cls_pipeline)
-        .add_stage(ocr_pipeline)
-        .add_stage("lpr_event_engine_post", event_engine_stage)
-        .add_stage("lpr_event_sink", lpr_event_sink, hailo_analytics::pipeline::StageType::SINK)
-        // Vision path connections
-        .connect_frontend("frontend", DEFAULT_STREAM_4K_NAME, "freeze")
-        .connect("freeze", "valve")
-        .connect("valve", "encoder")
-        .connect("encoder", "vision_tee")
-        .connect("vision_tee", "udp")
-        .connect("vision_tee", "webrtc_sink")
-        // AI Path connections
-        .connect_frontend("frontend", "sink2", "tiling_pipeline")
-        .connect("tiling_pipeline", "vehicle_attributes_pipeline")
-        .connect("vehicle_attributes_pipeline", "classification_pipeline")
-        .connect("classification_pipeline", "ocr_pipeline")
-        .connect("ocr_pipeline", "lpr_event_engine_post")
-        .connect("lpr_event_engine_post", "lpr_event_sink")
-        .build("LprPipeline");
+                                    .add_stage("frontend", configure_frontend(), hailo_analytics::pipeline::StageType::SOURCE)
+                                    .add_stage("freeze", m_app_resources->freeze_stage)
+                                    .add_stage("valve", m_app_resources->valve_stage)
+                                    .add_stage("encoder", configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME))
+                                    .add_stage("vision_tee", std::make_shared<TeeStage>("vision_tee", 2, false, false))
+                                    .add_stage("udp", configure_udp(DEFAULT_STREAM_4K_NAME), hailo_analytics::pipeline::StageType::SINK)
+                                    .add_stage("webrtc_sink", webrtc_sink_stage, hailo_analytics::pipeline::StageType::SINK)
+                                    .add_stage(tiling_pipeline)
+                                    .add_stage(veh_attrs_pipeline)
+                                    .add_stage(cls_pipeline)
+                                    .add_stage(ocr_pipeline)
+                                    .add_stage("lpr_event_engine_post", event_engine_stage)
+                                    .add_stage("lpr_event_sink", lpr_event_sink, hailo_analytics::pipeline::StageType::SINK)
+                                    // Vision path connections
+                                    .connect_frontend("frontend", DEFAULT_STREAM_4K_NAME, "freeze")
+                                    .connect("freeze", "valve")
+                                    .connect("valve", "encoder")
+                                    .connect("encoder", "vision_tee")
+                                    .connect("vision_tee", "udp")
+                                    .connect("vision_tee", "webrtc_sink")
+                                    // AI Path connections
+                                    .connect_frontend("frontend", "sink2", "tiling_pipeline")
+                                    .connect("tiling_pipeline", "vehicle_attributes_pipeline")
+                                    .connect("vehicle_attributes_pipeline", "classification_pipeline")
+                                    .connect("classification_pipeline", "ocr_pipeline")
+                                    .connect("ocr_pipeline", "lpr_event_engine_post")
+                                    .connect("lpr_event_engine_post", "lpr_event_sink")
+                                    .build("LprPipeline");
 
     WEBSERVER_LOG_INFO("LPR pipeline built successfully");
 }

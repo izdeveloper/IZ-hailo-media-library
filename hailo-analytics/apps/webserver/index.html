@@ -359,6 +359,15 @@
             font-size: 13px;
         }
 
+        .info-card {
+            background: #f8f9fa;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px;
+            font-size: 11px;
+            margin-bottom: 12px;
+        }
+
         /* Responsive Mobile Adjustments */
         @media (max-width: 850px) {
             body {
@@ -432,23 +441,33 @@
         <!-- Sidebar Controls -->
         <div class="settings-panel">
             <div class="tab-menu">
-                <button class="tab-btn active" onclick="showTab('tab-camera')">Camera</button>
-                <button class="tab-btn" onclick="showTab('tab-image')">ISP Image</button>
-                <button class="tab-btn" onclick="showTab('tab-ai')">AI / LPR</button>
-                <button class="tab-btn" onclick="showTab('tab-advanced')">Advanced</button>
-                <button class="tab-btn" onclick="showTab('tab-encoder')">Encoder</button>
-                <button class="tab-btn" onclick="showTab('tab-eventsdb')">Events DB</button>
+                <button class="tab-btn active" onclick="showTab(event, 'tab-camera')">Camera</button>
+                <button class="tab-btn" onclick="showTab(event, 'tab-image')">ISP Image</button>
+                <button class="tab-btn" onclick="showTab(event, 'tab-ai')">AI / LPR</button>
+                <button class="tab-btn" onclick="showTab(event, 'tab-advanced')">Advanced</button>
+                <button class="tab-btn" onclick="showTab(event, 'tab-encoder')">Encoder</button>
+                <button class="tab-btn" onclick="showTab(event, 'tab-eventsdb')">Events DB</button>
             </div>
             <div class="tab-content-container">
                 <!-- 1. Camera Setup -->
                 <div id="tab-camera" class="tab-pane active">
                     <div class="control-item">
+                        <label>Sensor Tuning Profile</label>
+                        <select id="cam-profile" onchange="switchProfile(this.value)">
+                            <option value="Daylight">Daylight</option>
+                            <option value="AI-ISP Gen1">AI-ISP Gen1</option>
+                            <option value="High Dynamic Range">High Dynamic Range</option>
+                            <!-- <option value="AI-ISP Gen2">AI-ISP Gen2</option> -->
+                            <!-- <option value="Denoise HDR">Denoise HDR</option> -->
+                        </select>
+                    </div>
+                    <div class="control-item">
                         <label>Rotation Angle</label>
                         <select id="cam-rotation" onchange="updateProfileSetting('rotation', this.value)">
                             <option value="ROTATION_ANGLE_0">0</option>
-                            <option value="ROTATION_ANGLE_90">90</option>
+                            <!-- <option value="ROTATION_ANGLE_90">90</option> -->
                             <option value="ROTATION_ANGLE_180">180</option>
-                            <option value="ROTATION_ANGLE_270">270</option>
+                            <!-- <option value="ROTATION_ANGLE_270">270</option> -->
                         </select>
                     </div>
                     <div class="control-item">
@@ -457,10 +476,32 @@
                             <option value="FLIP_DIRECTION_NONE">Off</option>
                             <option value="FLIP_DIRECTION_HORIZONTAL">Horizontal</option>
                             <option value="FLIP_DIRECTION_VERTICAL">Vertical</option>
+                            <option value="FLIP_DIRECTION_BOTH">Both</option>
                         </select>
                     </div>
                     <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
+
+                    <!-- Image Stabilization Section -->
+                    <div class="control-item">
+                        <label>Digital Image Stabilization (DIS)</label>
+                        <select id="dis-toggle" onchange="toggleDIS(this.value)">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+
+                    <!--
+                    <div class="control-item">
+                        <label>Electronic Image Stabilization (EIS)</label>
+                        <select id="eis-toggle" onchange="toggleEIS(this.value)">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>-->
+
+                    <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
                     <!-- Digital Zoom ROI Section -->
+                    <!--
                     <div class="control-item">
                         <label>Digital Zoom ROI Mode</label>
                         <select id="roi-enabled" onchange="toggleROI(this.value)">
@@ -511,7 +552,9 @@
                         <button class="btn btn-primary" style="width: 100%; margin-top: 5px;" onclick="resetROI()">Reset
                             ROI (Full Frame)</button>
                     </div>
+                    -->
                 </div>
+
                 <!-- 2. Image (ISP) -->
                 <div id="tab-image" class="tab-pane">
                     <div class="control-item">
@@ -548,7 +591,37 @@
                                 onchange="syncInput('isp-sat-range', this.value); applyISP()">
                         </div>
                     </div>
+                    <div class="control-item">
+                        <label>Sharpness</label>
+                        <div class="slider-group">
+                            <input type="range" id="isp-sharp-range" min="0" max="100" value="50"
+                                oninput="syncInput('isp-sharp-num', this.value); applyISP()">
+                            <input type="number" id="isp-sharp-num" min="0" max="100" value="50"
+                                onchange="syncInput('isp-sharp-range', this.value); applyISP()">
+                        </div>
+                    </div>
+                    <div class="control-item">
+                        <label>Wide Dynamic Range (WDR)</label>
+                        <div class="slider-group">
+                            <input type="range" id="isp-wdr-range" min="0" max="100" value="50"
+                                oninput="syncInput('isp-wdr-num', this.value); applyWDR()">
+                            <input type="number" id="isp-wdr-num" min="0" max="100" value="50"
+                                onchange="syncInput('isp-wdr-range', this.value); applyWDR()">
+                        </div>
+                    </div>
+                    <div class="control-item">
+                        <label>Noise Reduction</label>
+                        <div class="slider-group">
+                            <input type="range" id="isp-nr-range" min="0" max="100" value="50"
+                                oninput="syncInput('isp-nr-num', this.value); applyNoiseReduction()">
+                            <input type="number" id="isp-nr-num" min="0" max="100" value="50"
+                                onchange="syncInput('isp-nr-range', this.value); applyNoiseReduction()">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" style="width:100%; margin-top:5px;"
+                        onclick="refreshISP()">Refresh ISP Parameters</button>
                 </div>
+
                 <!-- 3. AI / LPR Controls -->
                 <div id="tab-ai" class="tab-pane">
                     <div class="control-item">
@@ -563,15 +636,20 @@
                         stabilization.
                     </p>
                 </div>
+
                 <!-- 4. Advanced Control -->
                 <div id="tab-advanced" class="tab-pane">
                     <div class="control-item">
                         <label>Auto White Balance (AWB)</label>
                         <select id="adv-awb" onchange="postJSON('/isp/awb', {value: this.value})">
                             <option value="auto">Auto</option>
+                            <option value="A">A</option>
                             <option value="D50">D50</option>
                             <option value="D65">D65</option>
-                            <option value="A">A</option>
+                            <option value="D75">D75</option>
+                            <option value="TL84">TL84</option>
+                            <option value="F12">F12</option>
+                            <option value="CWF">CWF</option>
                         </select>
                     </div>
                     <div class="control-item">
@@ -581,6 +659,13 @@
                             <option value="0">Off</option>
                             <option value="1">50 Hz</option>
                             <option value="2">60 Hz</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label>Global On-Screen Display (OSD)</label>
+                        <select id="osd-toggle" onchange="toggleOSD(this.value)">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
                         </select>
                     </div>
                     <div class="control-item">
@@ -602,7 +687,7 @@
                             </div>
                         </div>
                         <div class="control-item">
-                            <label>Exposure Time ( µs)</label>
+                            <label>Exposure Time</label>
                             <div class="slider-group">
                                 <input type="range" id="ae-time-range" min="8" max="33000" value="2000"
                                     oninput="syncInput('ae-time-num', this.value); applyManualExposure()">
@@ -611,7 +696,17 @@
                             </div>
                         </div>
                     </div>
+
+                    <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
+                    <div class="info-card">
+                        <div><b>Architecture:</b> <span id="sys-arch">Loading...</span></div>
+                        <div><b>Sensor Model:</b> <span id="sys-sensor">Loading...</span></div>
+                        <div><b>Thermal Throttling:</b> <span id="sys-throttling">Loading...</span></div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" style="width: 100%; padding: 8px;"
+                        onclick="resetAllConfig()">Reset All Camera Settings</button>
                 </div>
+
                 <!-- 5. Encoder -->
                 <div id="tab-encoder" class="tab-pane">
                     <div class="control-item">
@@ -624,9 +719,50 @@
                     </div>
                     <div class="control-item">
                         <label>Target Bitrate (Kbps)</label>
-                        <input type="number" id="enc-bitrate" value="2500" onchange="applyEncoder()">
+                        <input type="number" id="enc-bitrate" value="2000" min="200" max="40000"
+                            onchange="applyEncoder()">
+                        <div style="display: flex; gap: 5px; margin-top: 6px;">
+                            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="setBitratePreset(2000)">2
+                                Mbps</button>
+                            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="setBitratePreset(5000)">5
+                                Mbps</button>
+                            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="setBitratePreset(12000)">12
+                                Mbps</button>
+                            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="setBitratePreset(16000)">16
+                                Mbps</button>
+                        </div>
+                    </div>
+                    <div class="control-item">
+                        <label>Intra Pic Rate (GOP)</label>
+                        <input type="number" id="enc-intra" value="30" min="1" max="300" onchange="applyEncoder()">
+                    </div>
+                    <div class="control-item">
+                        <label>QP Min / Max (0 - 51)</label>
+                        <div style="display:flex; gap:10px;">
+                            <input type="number" id="enc-qpmin" placeholder="Min (0-51)" min="0" max="51"
+                                onchange="applyEncoder()">
+                            <input type="number" id="enc-qpmax" placeholder="Max (0-51)" min="0" max="51"
+                                onchange="applyEncoder()">
+                        </div>
+                    </div>
+                    <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
+                    <div class="control-item">
+                        <label>Smart Encoder</label>
+                        <select id="smart-enc-enable" onchange="applyEncoder()">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+                    <div class="control-item">
+                        <label>Smart Encoder Quality Preset</label>
+                        <select id="smart-enc-quality" onchange="applyEncoder()">
+                            <option value="LOW">Low</option>
+                            <option value="MEDIUM" selected>Medium</option>
+                            <option value="HIGH">High</option>
+                        </select>
                     </div>
                 </div>
+
                 <!-- 6. Events DB Page (Camera Memory Storage) -->
                 <div id="tab-eventsdb" class="tab-pane">
                     <div class="db-header">
@@ -636,18 +772,19 @@
                             <button class="btn btn-danger btn-sm" onclick="clearEventDB()">Clear DB</button>
                         </div>
                     </div>
-                    
+
                     <!-- Server Limit Configuration -->
-                    <div class="control-item" style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
+                    <div class="control-item"
+                        style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">
                         <label style="margin: 0; flex: 1;">Max Events to Save:</label>
                         <input type="number" id="max-events-input" value="1000" style="width: 80px;">
                         <button class="btn btn-primary btn-sm" onclick="updateMaxEvents()">Save</button>
                     </div>
 
-                    <!-- Filter Section Restructured to be stacked -->
-                    <div class="filter-section" style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border: 1px solid var(--border); border-radius: 6px;">
+                    <!-- Filter Section -->
+                    <div class="filter-section"
+                        style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border: 1px solid var(--border); border-radius: 6px;">
                         <h4 style="font-size: 13px; color: var(--primary); margin-bottom: 12px;">Filter Database</h4>
-                        
                         <div class="control-item" style="margin-bottom: 10px;">
                             <label>Date</label>
                             <input type="date" id="filter-date" onchange="applyFilters()">
@@ -664,16 +801,16 @@
                             <label>Vehicle Type</label>
                             <input type="text" id="filter-type" placeholder="e.g. SUV" onkeyup="applyFilters()">
                         </div>
-                        
-                        <button class="btn btn-primary btn-sm" style="width: 100%; padding: 8px;" onclick="clearFilters()">Reset Filters</button>
+                        <button class="btn btn-primary btn-sm" style="width: 100%; padding: 8px;"
+                            onclick="clearFilters()">Reset Filters</button>
                     </div>
-
                     <div id="history-list">
                         <!-- Historical event cards render here -->
                     </div>
                 </div>
             </div>
         </div>
+
         <!-- Video Player & Live Events Table -->
         <div class="view-panel">
             <div class="video-wrapper">
@@ -682,6 +819,7 @@
                     <div id="roi-selection"></div>
                 </div>
             </div>
+
             <!-- Live LPR Events Panel -->
             <div class="events-panel">
                 <div class="events-panel-header">
@@ -710,6 +848,7 @@
             </div>
         </div>
     </div>
+
     <!-- Full Screen Image Modal -->
     <div id="imgModal"
         style="display:none; position:fixed; z-index:99999; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); justify-content:center; align-items:center;"
@@ -717,16 +856,21 @@
         <img id="modalImg"
             style="max-width:90%; max-height:90%; border-radius:8px; border:2px solid white; box-shadow:0 4px 20px rgba(0,0,0,0.5);">
     </div>
+
     <script>
         let pc = null;
         let isLprActive = false;
-
-        // --- Event Persistence State ---
+        // Event Persistence State
         let MAX_EVENTS = 1000;
         let cameraEventHistory = [];
         const processedGuids = new Set();
 
-        // Fetches configuration from the server
+        // Generic API Helpers
+        async function postJSON(url, data) { try { return await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) { } }
+        async function putJSON(url, data) { try { return await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) { } }
+        async function patchJSON(url, data) { try { return await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) { } }
+
+        // Load Configuration & Event Data
         async function loadEventConfig() {
             try {
                 const res = await fetch('/api/v1/event-config');
@@ -738,7 +882,6 @@
             } catch (err) { console.warn("Could not load event config", err); }
         }
 
-        // Sends new limit to the server
         async function updateMaxEvents() {
             const max = parseInt(document.getElementById('max-events-input').value);
             if (isNaN(max) || max <= 0) return;
@@ -746,48 +889,41 @@
                 await postJSON('/api/v1/event-config', { max_events: max });
                 MAX_EVENTS = max;
                 alert("Server limit updated to " + max + " events.");
-                
                 if (cameraEventHistory.length > MAX_EVENTS) {
                     cameraEventHistory = cameraEventHistory.slice(0, MAX_EVENTS);
                 }
-                
                 renderEventHistory();
                 renderLiveTable();
             } catch (e) { console.error("Failed to update limit", e); }
         }
 
-        // Fetches all saved events from the C++ Backend ONLY ONCE during page load
         async function loadEventsFromCameraDisk() {
             try {
                 const res = await fetch('/api/v1/saved-events');
                 if (res.ok) {
                     const data = await res.json();
                     if (Array.isArray(data)) {
-                        
-                        cameraEventHistory = data.reverse(); 
-                        
+                        cameraEventHistory = data.reverse();
                         cameraEventHistory.forEach(ev => {
                             if (ev.transaction_guid) processedGuids.add(ev.transaction_guid);
                         });
-                        
                         if (document.getElementById('tab-eventsdb').classList.contains('active')) {
                             renderEventHistory();
                         }
                         renderLiveTable();
                     }
                 }
-            } catch (err) {}
+            } catch (err) { }
         }
 
         async function clearEventDB() {
             if (!confirm("Are you sure you want to permanently delete all stored events?")) return;
-            try { await fetch('/api/v1/saved-events', { method: 'DELETE' }); } catch (err) {}
+            try { await fetch('/api/v1/saved-events', { method: 'DELETE' }); } catch (err) { }
             cameraEventHistory = [];
             processedGuids.clear();
             renderEventHistory();
         }
 
-        // Download JSON format database
         function downloadDataset() {
             if (cameraEventHistory.length === 0) {
                 alert("No events to download.");
@@ -802,18 +938,14 @@
             downloadElement.remove();
         }
 
-        // Updated rendering to take an optional array (for filtering)
         function renderEventHistory(eventsToRender = cameraEventHistory) {
             const historyList = document.getElementById('history-list');
             if (!historyList) return;
-
             document.getElementById('db-count').innerText = `${eventsToRender.length} / ${MAX_EVENTS} Events`;
-
             if (eventsToRender.length === 0) {
                 historyList.innerHTML = '<div class="off-banner">No events found.</div>';
                 return;
             }
-
             let html = '';
             eventsToRender.forEach(ev => {
                 const lpr = (ev.lpr_results && ev.lpr_results.length > 0) ? ev.lpr_results[0] : {};
@@ -829,7 +961,6 @@
                     const d = new Date(timeStr);
                     timeStr = isNaN(d) ? timeStr : d.toLocaleString();
                 }
-
                 html += `
                 <div class="event-card">
                     ${imgHtml}
@@ -844,17 +975,14 @@
             historyList.innerHTML = html;
         }
 
-        // Apply filters dynamically
         function applyFilters() {
             const dateFilter = document.getElementById('filter-date').value;
             const plateFilter = document.getElementById('filter-plate').value.toLowerCase();
             const colorFilter = document.getElementById('filter-color').value.toLowerCase();
             const typeFilter = document.getElementById('filter-type').value.toLowerCase();
-
             const filteredEvents = cameraEventHistory.filter(ev => {
                 const lpr = (ev.lpr_results && ev.lpr_results.length > 0) ? ev.lpr_results[0] : {};
                 const veh = (ev.vehicles && ev.vehicles.length > 0) ? ev.vehicles[0] : {};
-
                 let evDate = "";
                 if (ev.transaction_timestamp && ev.transaction_timestamp !== 'N/A') {
                     const d = new Date(ev.transaction_timestamp);
@@ -863,19 +991,15 @@
                         evDate = new Date(d.getTime() - offset).toISOString().split('T')[0];
                     }
                 }
-
                 const matchDate = !dateFilter || evDate === dateFilter;
                 const matchPlate = !plateFilter || (lpr.plate_read && lpr.plate_read.toLowerCase().includes(plateFilter));
                 const matchColor = !colorFilter || (veh.color && veh.color.toLowerCase().includes(colorFilter));
                 const matchType = !typeFilter || (veh.vehicle_class && veh.vehicle_class.toLowerCase().includes(typeFilter));
-
                 return matchDate && matchPlate && matchColor && matchType;
             });
-
             renderEventHistory(filteredEvents);
         }
 
-        // Reset Filters
         function clearFilters() {
             document.getElementById('filter-date').value = '';
             document.getElementById('filter-plate').value = '';
@@ -890,7 +1014,6 @@
                 tbody.innerHTML = '<tr><td colspan="7">No plates detected yet.</td></tr>';
                 return;
             }
-
             const displayEvents = cameraEventHistory.slice(0, 15);
             tbody.innerHTML = '';
             displayEvents.forEach(ev => {
@@ -902,7 +1025,6 @@
                 }
                 const imageTd = imgSrc ? `<img src="${imgSrc}" style="height:36px; cursor:pointer;" onclick="openImageModal('${imgSrc}')">` : '<span>No Image</span>';
                 let timeStr = ev.transaction_timestamp ? new Date(ev.transaction_timestamp).toLocaleTimeString() : 'N/A';
-
                 tbody.innerHTML += `<tr>
                     <td>${imageTd}</td><td>${timeStr}</td><td style="font-weight:bold; color:var(--primary);">${lpr.plate_read || 'N/A'}</td>
                     <td>${lpr.plate_state || 'N/A'}</td><td>${lpr.plate_read_confidence || 0}%</td><td>${veh.color || 'N/A'}</td><td>${veh.vehicle_class || 'N/A'}</td>
@@ -917,7 +1039,6 @@
                 if (!res.ok) return;
                 const events = await res.json();
                 let hasNewEvents = false;
-
                 events.forEach(ev => {
                     if (ev.transaction_guid && !processedGuids.has(ev.transaction_guid)) {
                         processedGuids.add(ev.transaction_guid);
@@ -925,27 +1046,26 @@
                         hasNewEvents = true;
                     }
                 });
-
                 if (hasNewEvents) {
                     if (cameraEventHistory.length > MAX_EVENTS) {
                         cameraEventHistory = cameraEventHistory.slice(0, MAX_EVENTS);
                     }
                     if (document.getElementById('tab-eventsdb').classList.contains('active')) {
-                        // Apply filters dynamically if new events roll in
                         applyFilters();
                     }
                     renderLiveTable();
                 }
-            } catch (err) {}
+            } catch (err) { }
         }
 
-        function showTab(tabId) {
+        function showTab(evt, tabId) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            event.currentTarget.classList.add('active');
+            evt.currentTarget.classList.add('active');
             document.getElementById(tabId).classList.add('active');
-            if (tabId === 'tab-eventsdb') applyFilters(); // Ensure filters are applied when returning to tab
+            if (tabId === 'tab-eventsdb') applyFilters();
         }
+
         function syncInput(targetId, val) { document.getElementById(targetId).value = val; }
         function openImageModal(src) {
             document.getElementById('modalImg').src = src;
@@ -957,12 +1077,9 @@
             const videoEl = document.getElementById('remoteVideo');
             const statusEl = document.getElementById('status');
             statusEl.innerText = "Connecting...";
-
             if (pc) pc.close();
-
             pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
             pc.addTransceiver('video', { direction: 'recvonly' });
-
             pc.ontrack = (evt) => {
                 if (evt.streams && evt.streams[0]) {
                     videoEl.srcObject = evt.streams[0];
@@ -972,7 +1089,6 @@
                     }).catch(e => console.error("Autoplay blocked:", e));
                 }
             };
-
             try {
                 const offerRes = await fetch('/Offer_RTC', {
                     method: 'POST',
@@ -983,13 +1099,10 @@
                 await pc.setRemoteDescription(offer.rtc_offer);
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
-
-                // Wait for the browser to gather network routing IPs (ICE candidates)
                 await new Promise((resolve) => {
                     if (pc.iceGatheringState === 'complete') {
                         resolve();
                     } else {
-                        // Max 2-second timeout fallback so it never hangs indefinitely
                         const checkState = () => {
                             if (pc.iceGatheringState === 'complete') {
                                 pc.removeEventListener('icegatheringstatechange', checkState);
@@ -1000,8 +1113,6 @@
                         setTimeout(resolve, 2000);
                     }
                 });
-
-                // Send the updated description that now includes the ICE candidates
                 await fetch('/Response_RTC', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1017,8 +1128,10 @@
             }
         }
 
-        async function disableOSD() {
-            try { await fetch('/osd', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ global_enable: false }) }); } catch (e) {}
+        async function toggleOSD(enabledStr) {
+            try {
+                await patchJSON('/osd', { global_enable: enabledStr === 'true' });
+            } catch (e) { }
         }
 
         // --- ROI Control & Drawing Logic ---
@@ -1033,32 +1146,72 @@
                 applyROI();
             }
         }
+
+        // --- ROI Control & Drawing Logic ---
         function applyROI() {
             const isEnabled = (document.getElementById('roi-enabled').value === 'true');
             const x = parseFloat(document.getElementById('roi-x-num').value) / 100.0;
             const y = parseFloat(document.getElementById('roi-y-num').value) / 100.0;
             const width = parseFloat(document.getElementById('roi-w-num').value) / 100.0;
             const height = parseFloat(document.getElementById('roi-h-num').value) / 100.0;
+
             putJSON('/digital_zoom', {
-                enabled: isEnabled, mode: "DIGITAL_ZOOM_MODE_ROI", magnification: 1,
-                x: x, y: y, width: width, height: height
+                // Pipeline endpoints require specifying the target video stream
+                stream_id: "main",
+                stream_name: "main",
+
+                digital_zoom: {
+                    enabled: isEnabled,
+                    enable: isEnabled,
+                    mode: "DIGITAL_ZOOM_MODE_ROI",
+                    magnification: 1.0,
+                    // Provide coordinates both nested and flat to satisfy any parser schema
+                    roi: {
+                        x: x,
+                        y: y,
+                        width: width,
+                        height: height
+                    },
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                }
             });
         }
+
         function resetROI() {
             syncInput('roi-x-range', 0); syncInput('roi-x-num', 0);
             syncInput('roi-y-range', 0); syncInput('roi-y-num', 0);
             syncInput('roi-w-range', 100); syncInput('roi-w-num', 100);
             syncInput('roi-h-range', 100); syncInput('roi-h-num', 100);
+
             putJSON('/digital_zoom', {
-                enabled: false, mode: "DIGITAL_ZOOM_MODE_ROI", magnification: 1,
-                x: 0.0, y: 0.0, width: 1.0, height: 1.0
+                stream_id: "main",
+                stream_name: "main",
+
+                digital_zoom: {
+                    enabled: false,
+                    enable: false,
+                    mode: "DIGITAL_ZOOM_MODE_ROI",
+                    magnification: 1.0,
+                    roi: {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1.0,
+                        height: 1.0
+                    },
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0
+                }
             });
         }
 
         const drawLayer = document.getElementById('roi-draw-layer');
         const selectionBox = document.getElementById('roi-selection');
         let isDrawing = false, startX, startY;
-
         drawLayer.addEventListener('mousedown', (e) => {
             isDrawing = true;
             const rect = drawLayer.getBoundingClientRect();
@@ -1070,6 +1223,7 @@
             selectionBox.style.height = '0px';
             selectionBox.style.display = 'block';
         });
+
         drawLayer.addEventListener('mousemove', (e) => {
             if (!isDrawing) return;
             const rect = drawLayer.getBoundingClientRect();
@@ -1084,6 +1238,7 @@
             selectionBox.style.width = width + 'px';
             selectionBox.style.height = height + 'px';
         });
+
         drawLayer.addEventListener('mouseup', (e) => {
             if (!isDrawing) return;
             isDrawing = false;
@@ -1103,20 +1258,80 @@
             applyROI();
         });
 
+        // Pipeline & Profile Management
         async function switchPipeline(pipelineName) {
             try {
-                await fetch('/ai_pipeline', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: pipelineName }) });
+                await patchJSON('/ai_pipeline', { active: pipelineName });
+                document.getElementById('ai-pipeline-select').value = pipelineName;
                 checkPipelineStatus();
                 setTimeout(initWebRtc, 1000);
-            } catch (e) {}
+            } catch (e) { }
         }
 
         async function toggleLPR() {
             await switchPipeline(isLprActive ? 'Off' : 'License Plate Recognition');
         }
 
+        async function switchProfile(profileName) {
+            try {
+                await putJSON('/profile', { profile: { active: profileName } });
+            } catch (e) { }
+        }
+
+        async function fetchProfile() {
+            try {
+                const res = await fetch('/profile');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.profile && data.profile.active) {
+                        document.getElementById('cam-profile').value = data.profile.active;
+                    }
+                }
+            } catch (e) { }
+        }
+
         async function updateProfileSetting(setting, value) {
-            try { await fetch(`/${setting}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [setting]: value }) }); } catch (e) {}
+            try { await putJSON(`/${setting}`, { [setting]: value }); } catch (e) { }
+        }
+
+        async function toggleDIS(enabledStr) {
+            try {
+                await putJSON('/digital_image_stabilization', {
+                    digital_image_stabilization: { active: enabledStr === 'true' }
+                });
+            } catch (e) { }
+        }
+
+        async function toggleEIS(enabledStr) {
+            try {
+                const response = await fetch('/electronic_image_stabilization', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ electronic_image_stabilization: { active: enabledStr === 'true' } })
+                });
+                if (response.status === 500) {
+                    alert("Hardware Gyro not detected. EIS cannot be enabled.");
+                    document.getElementById('eis-toggle').value = 'false';
+                }
+            } catch (e) { }
+        }
+
+        async function fetchStabilization() {
+            try {
+                const disRes = await fetch('/digital_image_stabilization');
+                if (disRes.ok) {
+                    const disData = await disRes.json();
+                    if (disData.digital_image_stabilization) {
+                        document.getElementById('dis-toggle').value = disData.digital_image_stabilization.active.toString();
+                    }
+                }
+                const eisRes = await fetch('/electronic_image_stabilization');
+                if (eisRes.ok) {
+                    const eisData = await eisRes.json();
+                    if (eisData.electronic_image_stabilization) {
+                        document.getElementById('eis-toggle').value = eisData.electronic_image_stabilization.active.toString();
+                    }
+                }
+            } catch (e) { }
         }
 
         async function checkPipelineStatus() {
@@ -1125,9 +1340,12 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 isLprActive = (data.active === 'License Plate Recognition');
+                if (data.active) {
+                    document.getElementById('ai-pipeline-select').value = data.active;
+                }
                 const badge = document.getElementById('lprStatusBadge');
                 const headerBtn = document.getElementById('lprToggleHeaderBtn');
-                
+
                 if (isLprActive) {
                     badge.innerText = "LPR: ACTIVE"; badge.classList.add('active');
                     headerBtn.innerText = "Disable LPR Mode"; headerBtn.className = "btn btn-danger";
@@ -1137,32 +1355,41 @@
                     headerBtn.innerText = "Enable LPR Mode"; headerBtn.className = "btn btn-primary";
                     document.getElementById('lprTableBody').innerHTML = '<tr><td colspan="7" class="off-banner">LPR Pipeline is OFF. Click "Enable LPR Mode" to start detection.</td></tr>';
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
 
-        // Generic API Helpers
-        async function postJSON(url, data) { try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) {} }
-        async function putJSON(url, data) { try { await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (e) {} }
-
-        // --- ALL RESTORED ISP FUNCTIONS START HERE ---
+        // ISP Functions
         function applyISP() {
             const b = parseInt(document.getElementById('isp-bright-num').value);
             const c = parseInt(document.getElementById('isp-contrast-num').value);
             const s = parseInt(document.getElementById('isp-sat-num').value);
-            postJSON('/isp/stream_params', { brightness: b, contrast: c, saturation: s, sharpness: 50 });
+            const sh = parseInt(document.getElementById('isp-sharp-num').value);
+            postJSON('/isp/stream_params', { brightness: b, contrast: c, saturation: s, sharpness: sh });
         }
-        
+
+        function applyWDR() {
+            const val = parseInt(document.getElementById('isp-wdr-num').value);
+            postJSON('/isp/wdr', { value: val });
+        }
+
+        function applyNoiseReduction() {
+            const val = parseInt(document.getElementById('isp-nr-num').value);
+            postJSON('/isp/noise_reduction', { noise_reduction: val });
+        }
+
+        async function refreshISP() {
+            try { await fetch('/isp/refresh'); await fetchISP(); } catch (e) { }
+        }
+
         async function toggleAutoISP(val) {
             const isAuto = (val === 'true');
-            document.getElementById('isp-bright-range').disabled = isAuto;
-            document.getElementById('isp-bright-num').disabled = isAuto;
-            document.getElementById('isp-contrast-range').disabled = isAuto;
-            document.getElementById('isp-contrast-num').disabled = isAuto;
-            document.getElementById('isp-sat-range').disabled = isAuto;
-            document.getElementById('isp-sat-num').disabled = isAuto;
+            ['isp-bright', 'isp-contrast', 'isp-sat', 'isp-sharp', 'isp-wdr', 'isp-nr'].forEach(prefix => {
+                if (document.getElementById(`${prefix}-range`)) document.getElementById(`${prefix}-range`).disabled = isAuto;
+                if (document.getElementById(`${prefix}-num`)) document.getElementById(`${prefix}-num`).disabled = isAuto;
+            });
             await postJSON('/isp/filters_manual_state', { "auto": isAuto });
         }
-        
+
         async function fetchISP() {
             try {
                 const autoRes = await fetch('/isp/filters_manual_state');
@@ -1170,12 +1397,10 @@
                     const autoData = await autoRes.json();
                     const isAutoStr = autoData.auto.toString();
                     document.getElementById('isp-auto').value = isAutoStr;
-                    document.getElementById('isp-bright-range').disabled = autoData.auto;
-                    document.getElementById('isp-bright-num').disabled = autoData.auto;
-                    document.getElementById('isp-contrast-range').disabled = autoData.auto;
-                    document.getElementById('isp-contrast-num').disabled = autoData.auto;
-                    document.getElementById('isp-sat-range').disabled = autoData.auto;
-                    document.getElementById('isp-sat-num').disabled = autoData.auto;
+                    ['isp-bright', 'isp-contrast', 'isp-sat', 'isp-sharp', 'isp-wdr', 'isp-nr'].forEach(prefix => {
+                        if (document.getElementById(`${prefix}-range`)) document.getElementById(`${prefix}-range`).disabled = autoData.auto;
+                        if (document.getElementById(`${prefix}-num`)) document.getElementById(`${prefix}-num`).disabled = autoData.auto;
+                    });
                 }
                 const res = await fetch('/isp/stream_params');
                 if (res.ok) {
@@ -1186,6 +1411,18 @@
                     document.getElementById('isp-contrast-num').value = data.contrast;
                     document.getElementById('isp-sat-range').value = data.saturation;
                     document.getElementById('isp-sat-num').value = data.saturation;
+                    if (data.sharpness !== undefined) {
+                        document.getElementById('isp-sharp-range').value = data.sharpness;
+                        document.getElementById('isp-sharp-num').value = data.sharpness;
+                    }
+                }
+                const wdrRes = await fetch('/isp/wdr');
+                if (wdrRes.ok) {
+                    const wdrData = await wdrRes.json();
+                    if (wdrData.value !== undefined) {
+                        document.getElementById('isp-wdr-range').value = wdrData.value;
+                        document.getElementById('isp-wdr-num').value = wdrData.value;
+                    }
                 }
             } catch (err) { console.error("Failed to load ISP settings", err); }
         }
@@ -1200,7 +1437,7 @@
                 backlight: 0
             });
         }
-        
+
         function applyManualExposure() {
             const gainVal = parseInt(document.getElementById('ae-gain-num').value);
             const timeVal = parseInt(document.getElementById('ae-time-num').value);
@@ -1211,28 +1448,104 @@
                 backlight: 0
             });
         }
-        // --- ALL RESTORED ISP FUNCTIONS END HERE ---
-        
+
+        // --- Encoder Controls ---
         function applyEncoder() {
             const rc = document.getElementById('enc-rc').value || 'VBR';
-            const br = parseInt(document.getElementById('enc-bitrate').value) || 2500; 
-            
-            postJSON('/encoder', {
-                intra_pic_rate: 30,
-                quantization: { rc_mode: rc, bitrate: br }
-            });
+            let brKbps = parseInt(document.getElementById('enc-bitrate').value) || 2000;
+            brKbps = Math.max(200, Math.min(40000, brKbps));
+            document.getElementById('enc-bitrate').value = brKbps;
+            const brBps = brKbps * 1000; // Convert to bps for backend
+
+            let intra = parseInt(document.getElementById('enc-intra').value) || 30;
+            intra = Math.max(1, Math.min(300, intra));
+            document.getElementById('enc-intra').value = intra;
+
+            const smartEnable = (document.getElementById('smart-enc-enable').value === 'true');
+            const smartQuality = document.getElementById('smart-enc-quality').value || 'MEDIUM';
+
+            const payload = {
+                intra_pic_rate: intra,
+                quantization: { rc_mode: rc, bitrate: brBps },
+                smart_encoder: { global_enable: smartEnable, quality: smartQuality }
+            };
+
+            const qpMin = parseInt(document.getElementById('enc-qpmin').value);
+            const qpMax = parseInt(document.getElementById('enc-qpmax').value);
+            if (!isNaN(qpMin)) payload.quantization.qp_min = Math.max(0, Math.min(51, qpMin));
+            if (!isNaN(qpMax)) payload.quantization.qp_max = Math.max(0, Math.min(51, qpMax));
+
+            postJSON('/encoder', payload);
+        }
+
+        // We DO NOT run fetchEncoder() on load anymore, but keep it for manual refreshes
+        async function fetchEncoder() {
+            try {
+                const res = await fetch('/encoder');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.intra_pic_rate) document.getElementById('enc-intra').value = data.intra_pic_rate;
+                    if (data.quantization) {
+                        if (data.quantization.rc_mode) document.getElementById('enc-rc').value = data.quantization.rc_mode;
+                        if (data.quantization.bitrate) {
+                            let brKbps = Math.floor(data.quantization.bitrate / 1000);
+                            if (brKbps > 40000 || brKbps < 200) brKbps = 5000;
+                            document.getElementById('enc-bitrate').value = brKbps;
+                        }
+                        if (data.quantization.qp_min !== undefined) document.getElementById('enc-qpmin').value = data.quantization.qp_min;
+                        if (data.quantization.qp_max !== undefined) document.getElementById('enc-qpmax').value = data.quantization.qp_max;
+                    }
+                }
+            } catch (e) { }
+        }
+        async function setBitratePreset(kbps) {
+            document.getElementById('enc-bitrate').value = kbps;
+            applyEncoder();
+        }
+
+        // System & Diagnostics
+        async function fetchSystemInfo() {
+            try {
+                const archRes = await fetch('/architecture');
+                if (archRes.ok) {
+                    const archData = await archRes.json();
+                    document.getElementById('sys-arch').innerText = archData.architecture || 'Unknown';
+                }
+                const sensorRes = await fetch('/isp/sensor_model');
+                if (sensorRes.ok) {
+                    const sensorData = await sensorRes.json();
+                    document.getElementById('sys-sensor').innerText = sensorData.sensor_model || 'Unknown';
+                }
+                const throttleRes = await fetch('/throttling_state');
+                if (throttleRes.ok) {
+                    const throttleData = await throttleRes.json();
+                    document.getElementById('sys-throttling').innerText = throttleData.throttling_state || 'Normal';
+                }
+            } catch (e) { }
+        }
+
+        async function resetAllConfig() {
+            if (!confirm("Are you sure you want to reset all camera and pipeline configurations to default?")) return;
+            try {
+                await postJSON('/reset_all', {});
+                alert("All settings reset to default.");
+                window.location.reload();
+            } catch (e) { }
         }
 
         setInterval(fetchLprEvents, 1000);
 
         window.onload = async () => {
-            disableOSD();
+            await toggleOSD('false');
             checkPipelineStatus();
             await loadEventConfig();
-            fetchISP(); // Triggers the fully restored ISP data fetch function
+            fetchProfile();
+            fetchStabilization();
+            fetchISP();
+            fetchSystemInfo();
             initWebRtc();
+            await setBitratePreset(5000);
             await loadEventsFromCameraDisk();
-
             setTimeout(() => {
                 applyEncoder();
             }, 1000);
