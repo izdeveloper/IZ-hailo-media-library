@@ -20,7 +20,7 @@
 static std::atomic<bool> g_webserver_stopping{false};
 
 
-void start_day_night_auto_switcher()
+/*void start_day_night_auto_switcher()
 {
     std::thread([]() {
         // Initial boot delay to let media pipeline and WebRTC stabilize
@@ -104,6 +104,86 @@ void start_day_night_auto_switcher()
             }
         }
     }).detach();
+}*/
+
+static std::string patch_vendor_configs_in_memory(const std::string& original_config_path) {
+    try {
+        std::string tmp_dir = "/tmp/hailo_patched_configs/";
+        std::filesystem::create_directories(tmp_dir);
+
+        std::ifstream in_main(original_config_path);
+        if (!in_main.is_open()) return original_config_path;
+        
+        nlohmann::json main_json;
+        in_main >> main_json;
+        in_main.close();
+
+        if (main_json.contains("profiles")) {
+            for (auto& profile : main_json["profiles"]) {
+                std::string orig_profile_path = profile["config_file"];
+                
+                std::ifstream in_prof(orig_profile_path);
+                if (in_prof.is_open()) {
+                    nlohmann::json prof_json;
+                    in_prof >> prof_json;
+                    in_prof.close();
+
+                    // --- NEW LOGIC: Follow the path to the application_settings file ---
+                    if (prof_json.contains("application_settings") && prof_json["application_settings"].is_string()) {
+                        std::string app_settings_path = prof_json["application_settings"];
+                        std::ifstream in_app(app_settings_path);
+                        
+                        if (in_app.is_open()) {
+                            nlohmann::json app_json;
+                            in_app >> app_json;
+                            in_app.close();
+
+                            // Override the buffer pools inside the actual app settings JSON
+                            if (app_json.contains("application_input_streams") && 
+                                app_json["application_input_streams"].contains("resolutions")) {
+                                for (auto& res : app_json["application_input_streams"]["resolutions"]) {
+                                    res["pool_max_buffers"] = 35; // Force 35 buffers for all streams
+                                }
+                            }
+
+                            // Save the patched application_settings file to /tmp/
+                            std::string prof_name_str = profile["name"];
+                            std::string new_app_path = tmp_dir + prof_name_str + "_application_settings.json";
+                            std::ofstream out_app(new_app_path);
+                            out_app << app_json.dump(4);
+                            out_app.close();
+
+                            // Update the profile JSON to point to our new patched app settings file
+                            prof_json["application_settings"] = new_app_path;
+                        }
+                    }
+
+                    // Save the patched profile to /tmp/
+                    std::string new_prof_name = std::filesystem::path(orig_profile_path).filename();
+                    std::string new_prof_path = tmp_dir + new_prof_name;
+                    std::ofstream out_prof(new_prof_path);
+                    out_prof << prof_json.dump(4);
+                    out_prof.close();
+
+                    // Update the main config to point to our new patched profile
+                    profile["config_file"] = new_prof_path;
+                }
+            }
+        }
+
+        // Save the patched main config to /tmp/
+        std::string new_main_path = tmp_dir + "webserver_medialib_config.json";
+        std::ofstream out_main(new_main_path);
+        out_main << main_json.dump(4);
+        out_main.close();
+
+        std::cout << "Successfully patched vendor buffer pools to 35 in /tmp/" << std::endl;
+        return new_main_path; // Return the path to the patched config
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to patch configs: " << e.what() << std::endl;
+        return original_config_path; // Fallback to original if something fails
+    }
 }
 
 bool is_device_in_use(const std::string &device_path)
@@ -180,6 +260,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    setenv("HAILO_MEDIA_LIB_SKIP_METADATA_CONFIG_VALIDATION", "1", 1);
     setenv("MEDIALIB_USE_DIV_FRAMERATE_LOGIC", "1", 1);
     setenv("MEDIALIB_FD_DUP", "1", 1);
 
@@ -189,6 +270,8 @@ int main(int argc, char *argv[])
     std::string medialib_config_path = "";
     Architecture arch = get_hailo_architecture();
     flags_init(argc, argv, medialib_config_path);
+
+    medialib_config_path = patch_vendor_configs_in_memory(medialib_config_path);
 
     std::unique_ptr<HTTPServer> svr = HTTPServer::create();
     // register error handler
@@ -251,7 +334,7 @@ int main(int argc, char *argv[])
 
     WEBSERVER_LOG_INFO("Webserver started");
 
-    start_day_night_auto_switcher();
+    //start_day_night_auto_switcher();
 
     svr->listen("0.0.0.0", 8000);
 }

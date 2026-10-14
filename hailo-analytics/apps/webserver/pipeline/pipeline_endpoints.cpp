@@ -269,45 +269,72 @@ void BasePipeline::register_digital_zoom_endpoint()
     m_resources.m_srv.Put(PIPELINE_ENDPOINT_DIGITAL_ZOOM, [this](const nlohmann::json &j_body) {
         //{"mode":"DIGITAL_ZOOM_MODE_MAGNIFICATION", "magnification":1, "x":0,"y":0,"width":100,"height":100}
         WEBSERVER_LOG_INFO("PUT /digital_zoom_roi called");
-        if (!j_body.contains("digital_zoom"))
-        {
-            WEBSERVER_LOG_ERROR("Digital zoom mode not found in request body");
-            throw std::runtime_error("Digital zoom mode not found in request body");
-        }
-        auto mode = string_to_digital_zoom(j_body["digital_zoom"]["mode"].get<std::string>());
-        if (j_body["digital_zoom"].contains("mode") && mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_MAGNIFICATION &&
-            !j_body["digital_zoom"].contains("magnification"))
-        {
-            WEBSERVER_LOG_ERROR("Digital zoom not found in request body");
-            throw std::runtime_error("Digital zoom not found in request body");
-        }
-        else if (j_body["digital_zoom"].contains("mode") && mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_ROI &&
-                 (!j_body["digital_zoom"]["digital_zoom_roi"].contains("x") ||
-                  !j_body["digital_zoom"]["digital_zoom_roi"].contains("y") ||
-                  !j_body["digital_zoom"]["digital_zoom_roi"].contains("width") ||
-                  !j_body["digital_zoom"]["digital_zoom_roi"].contains("height")))
-        {
-            WEBSERVER_LOG_ERROR("Digital zoom roi not found in request body");
-            throw std::runtime_error("Digital zoom roi not found in request body");
-        }
-        auto magnification = j_body["digital_zoom"]["magnification"].get<int>();
-        auto enable = j_body["digital_zoom"]["enabled"].get<bool>();
-        if (mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_MAGNIFICATION)
-        {
-            m_resources.m_event_bus->notify(
-                EventType::CHANGE_DIGITAL_ZOOM,
-                std::make_shared<ProfileDigitalZoomState>(ProfileDigitalZoomState(enable, magnification)));
+        try{
+            if (!j_body.contains("digital_zoom"))
+            {
+                WEBSERVER_LOG_ERROR("Digital zoom mode not found in request body");
+                throw std::runtime_error("Digital zoom mode not found in request body");
+            }
+            auto mode = string_to_digital_zoom(j_body["digital_zoom"]["mode"].get<std::string>());
+            if (j_body["digital_zoom"].contains("mode") && mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_MAGNIFICATION &&
+                !j_body["digital_zoom"].contains("magnification"))
+            {
+                WEBSERVER_LOG_ERROR("Digital zoom not found in request body");
+                throw std::runtime_error("Digital zoom not found in request body");
+            }
+            else if (j_body["digital_zoom"].contains("mode") && mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_ROI &&
+                    (!j_body["digital_zoom"]["digital_zoom_roi"].contains("x") ||
+                    !j_body["digital_zoom"]["digital_zoom_roi"].contains("y") ||
+                    !j_body["digital_zoom"]["digital_zoom_roi"].contains("width") ||
+                    !j_body["digital_zoom"]["digital_zoom_roi"].contains("height")))
+            {
+                WEBSERVER_LOG_ERROR("Digital zoom roi not found in request body");
+                throw std::runtime_error("Digital zoom roi not found in request body");
+            }
+            auto magnification = j_body["digital_zoom"]["magnification"].get<int>();
+            auto enable = j_body["digital_zoom"]["enabled"].get<bool>();
+            if (mode == digital_zoom_mode_t::DIGITAL_ZOOM_MODE_MAGNIFICATION)
+            {
+                m_resources.m_event_bus->notify(
+                    EventType::CHANGE_DIGITAL_ZOOM,
+                    std::make_shared<ProfileDigitalZoomState>(ProfileDigitalZoomState(enable, magnification)));
+                return nlohmann::json();
+            }
+            auto x = j_body["digital_zoom"]["digital_zoom_roi"]["x"].get<double>();
+            auto y = j_body["digital_zoom"]["digital_zoom_roi"]["y"].get<double>();
+            auto width = j_body["digital_zoom"]["digital_zoom_roi"]["width"].get<double>();
+            auto height = j_body["digital_zoom"]["digital_zoom_roi"]["height"].get<double>();
+
+            // Convert to normalized format if values were sent as percentages (0..100)
+            if (width > 1.0 || height > 1.0 || x > 1.0 || y > 1.0) {
+                x /= 100.0;
+                y /= 100.0;
+                width /= 100.0;
+                height /= 100.0;
+            }
+
+            // --- SERVER-SIDE DSP PROTECTION (10% Threshold) ---
+            const double MIN_SAFE_DIMENSION = 0.10; // 10%
+            if (enable && (width < MIN_SAFE_DIMENSION || height < MIN_SAFE_DIMENSION))
+            {
+                WEBSERVER_LOG_WARN("Digital Zoom ROI rejected: Requested size ({}x{}) is below the 10% safety limit to prevent DSP crash.", width, height);
+                return nlohmann::json{{"error", "ROI too small. Minimum width and height is 10%."}};
+            }
+
+            m_resources.m_event_bus->notify(EventType::CHANGE_DIGITAL_ZOOM_ROI,
+                                            std::make_shared<ProfileDigitalZoomRoiState>(
+                                                ProfileDigitalZoomRoiState(enable, magnification, x, y, width, height)));
+            WEBSERVER_LOG_INFO("PUT /digital_zoom_roi completed");
             return nlohmann::json();
         }
-        auto x = j_body["digital_zoom"]["digital_zoom_roi"]["x"].get<double>();
-        auto y = j_body["digital_zoom"]["digital_zoom_roi"]["y"].get<double>();
-        auto width = j_body["digital_zoom"]["digital_zoom_roi"]["width"].get<double>();
-        auto height = j_body["digital_zoom"]["digital_zoom_roi"]["height"].get<double>();
-        m_resources.m_event_bus->notify(EventType::CHANGE_DIGITAL_ZOOM_ROI,
-                                        std::make_shared<ProfileDigitalZoomRoiState>(
-                                            ProfileDigitalZoomRoiState(enable, magnification, x, y, width, height)));
-        WEBSERVER_LOG_INFO("PUT /digital_zoom_roi completed");
-        return nlohmann::json();
+        catch (const std::exception &e) {
+            // Catch parsing errors so they don't abort the server
+            WEBSERVER_LOG_ERROR("Exception in digital_zoom handler: {}", e.what());
+            return nlohmann::json{{"error", e.what()}};
+        } catch (...) {
+            WEBSERVER_LOG_ERROR("Unknown exception in digital_zoom handler");
+            return nlohmann::json{{"error", "Unknown server error"}};
+        }
     });
 }
 

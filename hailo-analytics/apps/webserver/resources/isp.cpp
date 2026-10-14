@@ -173,7 +173,9 @@ void IspResource::http_register(HTTPServer &srv)
     register_refresh(srv);
     register_filters_manual_state(srv);
     register_powerline_frequency(srv);
-    register_noise_reduction(srv);
+    //register_noise_reduction(srv);
+    register_2dnr(srv);
+    register_3dnr(srv);
     register_wdr(srv);
     register_awb(srv);
     register_stream_params(srv);
@@ -286,7 +288,7 @@ void IspResource::register_powerline_frequency(HTTPServer &srv)
                 return j_out;
             }));
 }
-
+/*
 void IspResource::register_noise_reduction(HTTPServer &srv)
 {
     srv.Post("/isp/noise_reduction", [this](const nlohmann::json &req) {
@@ -311,6 +313,68 @@ void IspResource::register_noise_reduction(HTTPServer &srv)
             throw std::runtime_error("Failed to set noise reduction");
         }
     });
+}*/
+
+void IspResource::register_2dnr(HTTPServer &srv)
+{
+    srv.Post("/isp/2dnr", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &req) {
+        std::string ret_msg;
+        int nr = 0;
+        bool ret = json_extract_value<int>(req, "value", nr, &ret_msg);
+        if (!ret) throw std::runtime_error(ret_msg);
+        if (nr > 100 || nr < 0) throw std::runtime_error("Invalid 2DNR value");
+
+        int hw_val = (nr * 127) / 100; 
+        
+        // 1. Force hardware to Manual mode
+        v4l2_ctrl::set<bool>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_2D_MODE, false);
+        // 2. Apply our manual strength
+        if (!v4l2_ctrl::set<int>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_2D, hw_val)) {
+            throw std::runtime_error("Failed to set 2DNR");
+        }
+        return nlohmann::json{{"value", nr}};
+    }));
+
+    srv.Get("/isp/2dnr", std::function<nlohmann::json()>([this]() {
+        wait_safe_to_pull();
+        int hw_val = 0;
+        if (!v4l2_ctrl::get<int>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_2D, hw_val)) {
+            throw std::runtime_error("Failed to get 2DNR");
+        }
+        int nr = (hw_val * 100) / 127; // Map back to 0-100
+        return nlohmann::json{{"value", nr}};
+    }));
+}
+
+void IspResource::register_3dnr(HTTPServer &srv)
+{
+    srv.Post("/isp/3dnr", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &req) {
+        std::string ret_msg;
+        int nr = 0;
+        bool ret = json_extract_value<int>(req, "value", nr, &ret_msg);
+        if (!ret) throw std::runtime_error(ret_msg);
+        if (nr > 100 || nr < 0) throw std::runtime_error("Invalid 3DNR value");
+
+        int hw_val = (nr * 128) / 100; 
+        
+        // 1. Force hardware to Manual mode
+        v4l2_ctrl::set<bool>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_3D_MODE, false);
+        // 2. Apply our manual strength
+        if (!v4l2_ctrl::set<int>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_3D, hw_val)) {
+            throw std::runtime_error("Failed to set 3DNR");
+        }
+        return nlohmann::json{{"value", nr}};
+    }));
+
+    srv.Get("/isp/3dnr", std::function<nlohmann::json()>([this]() {
+        wait_safe_to_pull();
+        int hw_val = 0;
+        if (!v4l2_ctrl::get<int>(v4l2_ctrl::Video0Ctrl::NOISE_REDUCTION_3D, hw_val)) {
+            throw std::runtime_error("Failed to get 3DNR");
+        }
+        int nr = (hw_val * 100) / 128; // Map back to 0-100
+        return nlohmann::json{{"value", nr}};
+    }));
 }
 
 void IspResource::register_wdr(HTTPServer &srv)

@@ -452,6 +452,31 @@
                 <!-- 1. Camera Setup -->
                 <div id="tab-camera" class="tab-pane active">
                     <div class="control-item">
+                        <label>Stream Resolution</label>
+                        <select id="cam-resolution" onchange="changeResolution(this.value)">
+                            <option value="4K">4K (3840x2160)</option>
+                            <option value="5MP">5MP (2592x1944)</option>
+                            <option value="4MP">4MP (2688x1520)</option>
+                            <option value="QHD">QHD (2560x1440)</option>
+                            <option value="FHD">FHD (1920x1080)</option>
+                            <option value="HD">HD (1280x720)</option>
+                            <option value="SD">SD (640x480)</option>
+                        </select>
+                    </div>
+
+                    <div class="control-item">
+                        <label>Framerate (FPS)</label>
+                        <select id="cam-framerate" onchange="changeFramerate(this.value)">
+                            <option value="30">30 FPS</option>
+                            <option value="25">25 FPS</option>
+                            <option value="20">20 FPS</option>
+                            <option value="15">15 FPS</option>
+                            <option value="10">10 FPS</option>
+                            <option value="5">5 FPS</option>
+                        </select>
+                    </div>
+
+                    <div class="control-item">
                         <label>Sensor Tuning Profile</label>
                         <select id="cam-profile" onchange="switchProfile(this.value)">
                             <option value="Daylight">Daylight</option>
@@ -479,6 +504,32 @@
                             <option value="FLIP_DIRECTION_BOTH">Both</option>
                         </select>
                     </div>
+
+                    <!-- Missing Hardware Features -->
+                    <div class="control-item">
+                        <label>Dewarp (Lens Correction)</label>
+                        <select id="cam-dewarp" onchange="toggleDewarp(this.value)">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+
+                    <div class="control-item">
+                        <label>Grayscale (B&W Mode)</label>
+                        <select id="cam-grayscale" onchange="toggleGrayscale(this.value)">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+
+                    <div class="control-item">
+                        <label>Freeze Stream</label>
+                        <select id="cam-freeze" onchange="toggleFreeze(this.value)">
+                            <option value="false">Live Video</option>
+                            <option value="true">Frozen</option>
+                        </select>
+                    </div>
+
                     <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
 
                     <!-- Image Stabilization Section -->
@@ -501,7 +552,7 @@
 
                     <hr style="margin: 15px 0; border:0; border-top: 1px solid var(--border);">
                     <!-- Digital Zoom ROI Section -->
-                    <!--
+                    
                     <div class="control-item">
                         <label>Digital Zoom ROI Mode</label>
                         <select id="roi-enabled" onchange="toggleROI(this.value)">
@@ -511,48 +562,51 @@
                     </div>
                     <div id="roi-controls" style="display: none;">
                         <p style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">
-                            Click and drag directly on the live video stream to select an ROI region.
+                            Click and drag directly on the live video stream to select an ROI region, then click Apply.
                         </p>
                         <div class="control-item">
                             <label>X Position (%)</label>
                             <div class="slider-group">
-                                <input type="range" id="roi-x-range" min="0" max="90" value="0"
-                                    oninput="syncInput('roi-x-num', this.value); applyROI()">
-                                <input type="number" id="roi-x-num" min="0" max="90" value="0"
-                                    onchange="syncInput('roi-x-range', this.value); applyROI()">
+                                <input type="range" id="roi-x-range" min="0" max="100" value="0"
+                                    oninput="syncInput('roi-x-num', this.value)">
+                                <input type="number" id="roi-x-num" min="0" max="100" value="0"
+                                    onchange="syncInput('roi-x-range', this.value)">
                             </div>
                         </div>
                         <div class="control-item">
                             <label>Y Position (%)</label>
                             <div class="slider-group">
-                                <input type="range" id="roi-y-range" min="0" max="90" value="0"
-                                    oninput="syncInput('roi-y-num', this.value); applyROI()">
-                                <input type="number" id="roi-y-num" min="0" max="90" value="0"
-                                    onchange="syncInput('roi-y-range', this.value); applyROI()">
+                                <input type="range" id="roi-y-range" min="0" max="100" value="0"
+                                    oninput="syncInput('roi-y-num', this.value)">
+                                <input type="number" id="roi-y-num" min="0" max="100" value="0"
+                                    onchange="syncInput('roi-y-range', this.value)">
                             </div>
                         </div>
                         <div class="control-item">
                             <label>Width (%)</label>
                             <div class="slider-group">
                                 <input type="range" id="roi-w-range" min="10" max="100" value="100"
-                                    oninput="syncInput('roi-w-num', this.value); applyROI()">
+                                    oninput="syncInput('roi-w-num', this.value)">
                                 <input type="number" id="roi-w-num" min="10" max="100" value="100"
-                                    onchange="syncInput('roi-w-range', this.value); applyROI()">
+                                    onchange="syncInput('roi-w-range', this.value)">
                             </div>
                         </div>
                         <div class="control-item">
                             <label>Height (%)</label>
                             <div class="slider-group">
                                 <input type="range" id="roi-h-range" min="10" max="100" value="100"
-                                    oninput="syncInput('roi-h-num', this.value); applyROI()">
+                                    oninput="syncInput('roi-h-num', this.value)">
                                 <input type="number" id="roi-h-num" min="10" max="100" value="100"
-                                    onchange="syncInput('roi-h-range', this.value); applyROI()">
+                                    onchange="syncInput('roi-h-range', this.value)">
                             </div>
                         </div>
-                        <button class="btn btn-primary" style="width: 100%; margin-top: 5px;" onclick="resetROI()">Reset
-                            ROI (Full Frame)</button>
+                        
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="btn btn-primary" style="flex: 1;" onclick="applyROI()">Apply ROI</button>
+                            <button class="btn btn-danger" style="flex: 1;" onclick="resetROI()">Reset</button>
+                        </div>
                     </div>
-                    -->
+                    
                 </div>
 
                 <!-- 2. Image (ISP) -->
@@ -609,15 +663,28 @@
                                 onchange="syncInput('isp-wdr-range', this.value); applyWDR()">
                         </div>
                     </div>
+
                     <div class="control-item">
-                        <label>Noise Reduction</label>
+                        <label>2D Noise Reduction (Spatial)</label>
                         <div class="slider-group">
-                            <input type="range" id="isp-nr-range" min="0" max="100" value="50"
-                                oninput="syncInput('isp-nr-num', this.value); applyNoiseReduction()">
-                            <input type="number" id="isp-nr-num" min="0" max="100" value="50"
-                                onchange="syncInput('isp-nr-range', this.value); applyNoiseReduction()">
+                            <input type="range" id="isp-2dnr-range" min="0" max="100" value="50"
+                                oninput="syncInput('isp-2dnr-num', this.value)"
+                                onchange="syncInput('isp-2dnr-num', this.value); apply2DNR()">
+                            <input type="number" id="isp-2dnr-num" min="0" max="100" value="50"
+                                onchange="syncInput('isp-2dnr-range', this.value); apply2DNR()">
                         </div>
                     </div>
+                    <div class="control-item">
+                        <label>3D Noise Reduction (Temporal)</label>
+                        <div class="slider-group">
+                            <input type="range" id="isp-3dnr-range" min="0" max="100" value="50"
+                                oninput="syncInput('isp-3dnr-num', this.value)"
+                                onchange="syncInput('isp-3dnr-num', this.value); apply3DNR()">
+                            <input type="number" id="isp-3dnr-num" min="0" max="100" value="50"
+                                onchange="syncInput('isp-3dnr-range', this.value); apply3DNR()">
+                        </div>
+                    </div>
+
                     <button class="btn btn-primary btn-sm" style="width:100%; margin-top:5px;"
                         onclick="refreshISP()">Refresh ISP Parameters</button>
                 </div>
@@ -629,6 +696,7 @@
                         <select id="ai-pipeline-select" onchange="switchPipeline(this.value)">
                             <option value="Off">Off (Basic Stream)</option>
                             <option value="License Plate Recognition">License Plate Recognition</option>
+                            <option value="USA License Plate Recognition">USA License Plate Recognition</option>
                         </select>
                     </div>
                     <p style="font-size:11px; color:var(--text-muted); margin-top:10px;">
@@ -675,6 +743,7 @@
                             <option value="false">Manual</option>
                         </select>
                     </div>
+
                     <!-- Manual Exposure Controls -->
                     <div id="manual-exposure-controls" style="display: none;">
                         <div class="control-item">
@@ -703,6 +772,7 @@
                         <div><b>Sensor Model:</b> <span id="sys-sensor">Loading...</span></div>
                         <div><b>Thermal Throttling:</b> <span id="sys-throttling">Loading...</span></div>
                     </div>
+
                     <button class="btn btn-danger btn-sm" style="width: 100%; padding: 8px;"
                         onclick="resetAllConfig()">Reset All Camera Settings</button>
                 </div>
@@ -1128,6 +1198,24 @@
             }
         }
 
+        async function toggleDewarp(enabledStr) {
+            try {
+                await putJSON('/dewarp', { dewarp: enabledStr === 'true' });
+            } catch (e) { console.error("Failed to toggle Dewarp", e); }
+        }
+
+        async function toggleGrayscale(enabledStr) {
+            try {
+                await putJSON('/grayscale', { grayscale: enabledStr === 'true' });
+            } catch (e) { console.error("Failed to toggle Grayscale", e); }
+        }
+
+        async function toggleFreeze(enabledStr) {
+            try {
+                await putJSON('/freeze', { freeze: enabledStr === 'true' });
+            } catch (e) { console.error("Failed to toggle Freeze", e); }
+        }
+
         async function toggleOSD(enabledStr) {
             try {
                 await patchJSON('/osd', { global_enable: enabledStr === 'true' });
@@ -1147,7 +1235,9 @@
             }
         }
 
-        // --- ROI Control & Drawing Logic ---
+        // Global tracker to handle compound zooming (drawing a new ROI inside an already cropped feed)
+        let currentActiveROI = { x: 0.0, y: 0.0, w: 1.0, h: 1.0 };
+
         function applyROI() {
             const isEnabled = (document.getElementById('roi-enabled').value === 'true');
             const x = parseFloat(document.getElementById('roi-x-num').value) / 100.0;
@@ -1155,27 +1245,27 @@
             const width = parseFloat(document.getElementById('roi-w-num').value) / 100.0;
             const height = parseFloat(document.getElementById('roi-h-num').value) / 100.0;
 
-            putJSON('/digital_zoom', {
-                // Pipeline endpoints require specifying the target video stream
-                stream_id: "main",
-                stream_name: "main",
+            // Hide the yellow box after apply
+            document.getElementById('roi-selection').style.display = 'none';
 
+            // Update our background tracker with the new absolute coordinates
+            if (isEnabled) {
+                currentActiveROI = { x: x, y: y, w: width, h: height };
+            } else {
+                currentActiveROI = { x: 0.0, y: 0.0, w: 1.0, h: 1.0 };
+            }
+
+            putJSON('/digital_zoom', {
                 digital_zoom: {
                     enabled: isEnabled,
-                    enable: isEnabled,
                     mode: "DIGITAL_ZOOM_MODE_ROI",
                     magnification: 1.0,
-                    // Provide coordinates both nested and flat to satisfy any parser schema
-                    roi: {
+                    digital_zoom_roi: {
                         x: x,
                         y: y,
                         width: width,
                         height: height
-                    },
-                    x: x,
-                    y: y,
-                    width: width,
-                    height: height
+                    }
                 }
             });
         }
@@ -1186,37 +1276,68 @@
             syncInput('roi-w-range', 100); syncInput('roi-w-num', 100);
             syncInput('roi-h-range', 100); syncInput('roi-h-num', 100);
 
-            putJSON('/digital_zoom', {
-                stream_id: "main",
-                stream_name: "main",
+            // Reset the compound zoom state
+            currentActiveROI = { x: 0.0, y: 0.0, w: 1.0, h: 1.0 };
 
+            // Hide the yellow box from the screen
+            const selectionBox = document.getElementById('roi-selection');
+            selectionBox.style.display = 'none';
+            selectionBox.style.width = '0px';
+            selectionBox.style.height = '0px';
+
+            putJSON('/digital_zoom', {
                 digital_zoom: {
                     enabled: false,
-                    enable: false,
                     mode: "DIGITAL_ZOOM_MODE_ROI",
                     magnification: 1.0,
-                    roi: {
+                    digital_zoom_roi: {
                         x: 0.0,
                         y: 0.0,
                         width: 1.0,
                         height: 1.0
-                    },
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1.0,
-                    height: 1.0
+                    }
                 }
             });
+        }
+
+        // Helper: Calculate true video bounds accounting for 'object-fit: contain' black bars
+        function getVideoRect() {
+            const video = document.getElementById('remoteVideo');
+            const container = document.getElementById('roi-draw-layer');
+            
+            if (!video.videoWidth || !video.videoHeight) {
+                return { left: 0, top: 0, width: container.clientWidth, height: container.clientHeight };
+            }
+
+            const cWidth = container.clientWidth;
+            const cHeight = container.clientHeight;
+            const vRatio = video.videoWidth / video.videoHeight;
+            const cRatio = cWidth / cHeight;
+
+            let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
+
+            if (vRatio > cRatio) {
+                drawWidth = cWidth;
+                drawHeight = cWidth / vRatio;
+                offsetY = (cHeight - drawHeight) / 2;
+            } else {
+                drawHeight = cHeight;
+                drawWidth = cHeight * vRatio;
+                offsetX = (cWidth - drawWidth) / 2;
+            }
+            return { left: offsetX, top: offsetY, width: drawWidth, height: drawHeight };
         }
 
         const drawLayer = document.getElementById('roi-draw-layer');
         const selectionBox = document.getElementById('roi-selection');
         let isDrawing = false, startX, startY;
+
         drawLayer.addEventListener('mousedown', (e) => {
             isDrawing = true;
             const rect = drawLayer.getBoundingClientRect();
             startX = e.clientX - rect.left;
             startY = e.clientY - rect.top;
+            
             selectionBox.style.left = startX + 'px';
             selectionBox.style.top = startY + 'px';
             selectionBox.style.width = '0px';
@@ -1227,12 +1348,20 @@
         drawLayer.addEventListener('mousemove', (e) => {
             if (!isDrawing) return;
             const rect = drawLayer.getBoundingClientRect();
-            const currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-            const currentY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
-            const left = Math.min(startX, currentX);
-            const top = Math.min(startY, currentY);
-            const width = Math.abs(currentX - startX);
-            const height = Math.abs(currentY - startY);
+            const vRect = getVideoRect();
+
+            // Constrain mouse coordinates strictly to the active video frame (ignore black bars)
+            let currentX = Math.max(vRect.left, Math.min(e.clientX - rect.left, vRect.left + vRect.width));
+            let currentY = Math.max(vRect.top, Math.min(e.clientY - rect.top, vRect.top + vRect.height));
+            
+            let constrainedStartX = Math.max(vRect.left, Math.min(startX, vRect.left + vRect.width));
+            let constrainedStartY = Math.max(vRect.top, Math.min(startY, vRect.top + vRect.height));
+
+            const left = Math.min(constrainedStartX, currentX);
+            const top = Math.min(constrainedStartY, currentY);
+            const width = Math.abs(currentX - constrainedStartX);
+            const height = Math.abs(currentY - constrainedStartY);
+
             selectionBox.style.left = left + 'px';
             selectionBox.style.top = top + 'px';
             selectionBox.style.width = width + 'px';
@@ -1242,20 +1371,37 @@
         drawLayer.addEventListener('mouseup', (e) => {
             if (!isDrawing) return;
             isDrawing = false;
-            const rect = drawLayer.getBoundingClientRect();
-            let xPct = (parseFloat(selectionBox.style.left) / rect.width) * 100;
-            let yPct = (parseFloat(selectionBox.style.top) / rect.height) * 100;
-            let wPct = (parseFloat(selectionBox.style.width) / rect.width) * 100;
-            let hPct = (parseFloat(selectionBox.style.height) / rect.height) * 100;
-            xPct = Math.max(0, Math.min(90, xPct));
-            yPct = Math.max(0, Math.min(90, yPct));
-            wPct = Math.max(10, Math.min(100, wPct));
-            hPct = Math.max(10, Math.min(100, hPct));
-            syncInput('roi-x-num', xPct.toFixed(1)); syncInput('roi-x-range', xPct.toFixed(1));
-            syncInput('roi-y-num', yPct.toFixed(1)); syncInput('roi-y-range', yPct.toFixed(1));
-            syncInput('roi-w-num', wPct.toFixed(1)); syncInput('roi-w-range', wPct.toFixed(1));
-            syncInput('roi-h-num', hPct.toFixed(1)); syncInput('roi-h-range', hPct.toFixed(1));
-            applyROI();
+
+            const vRect = getVideoRect();
+
+            let boxLeft = parseFloat(selectionBox.style.left);
+            let boxTop = parseFloat(selectionBox.style.top);
+            let boxWidth = parseFloat(selectionBox.style.width);
+            let boxHeight = parseFloat(selectionBox.style.height);
+
+            // Calculate percentage relative to the *currently visible* video frame (0 to 100)
+            let relativeXPct = ((boxLeft - vRect.left) / vRect.width) * 100;
+            let relativeYPct = ((boxTop - vRect.top) / vRect.height) * 100;
+            let relativeWPct = (boxWidth / vRect.width) * 100;
+            let relativeHPct = (boxHeight / vRect.height) * 100;
+
+            // Map these relative coordinates back to ABSOLUTE sensor coordinates using the currentActiveROI
+            let abs_x = (currentActiveROI.x * 100) + (relativeXPct * currentActiveROI.w);
+            let abs_y = (currentActiveROI.y * 100) + (relativeYPct * currentActiveROI.h);
+            let abs_w = relativeWPct * currentActiveROI.w;
+            let abs_h = relativeHPct * currentActiveROI.h;
+
+            // Clamp fallbacks to ensure valid API payloads stay between 0 and 100
+            abs_x = Math.max(0, Math.min(100, abs_x));
+            abs_y = Math.max(0, Math.min(100, abs_y));
+            abs_w = Math.max(1, Math.min(100 - abs_x, abs_w));
+            abs_h = Math.max(1, Math.min(100 - abs_y, abs_h));
+
+            // Set the sliders and inputs to the newly calculated absolute coordinates
+            syncInput('roi-x-num', abs_x.toFixed(1)); syncInput('roi-x-range', abs_x.toFixed(1));
+            syncInput('roi-y-num', abs_y.toFixed(1)); syncInput('roi-y-range', abs_y.toFixed(1));
+            syncInput('roi-w-num', abs_w.toFixed(1)); syncInput('roi-w-range', abs_w.toFixed(1));
+            syncInput('roi-h-num', abs_h.toFixed(1)); syncInput('roi-h-range', abs_h.toFixed(1));
         });
 
         // Pipeline & Profile Management
@@ -1358,6 +1504,50 @@
             } catch (e) { }
         }
 
+        async function changeResolution(resString) {
+            try {
+                // Show reconnecting status in the UI
+                const statusEl = document.getElementById('status');
+                statusEl.innerText = "Applying Resolution...";
+                statusEl.classList.remove('active');
+
+                await putJSON('/resolution', { resolution: resString });
+                
+                // Wait 1.5 seconds for the backend to rebuild the pipeline, then reconnect the video
+                setTimeout(initWebRtc, 15000);
+            } catch (e) { console.error("Failed to change resolution", e); }
+        }
+
+        async function changeFramerate(fpsNum) {
+            try {
+                // Show reconnecting status in the UI
+                const statusEl = document.getElementById('status');
+                statusEl.innerText = "Applying Framerate...";
+                statusEl.classList.remove('active');
+
+                await putJSON('/framerate', { framerate: parseInt(fpsNum) });
+                
+                // Wait 1.5 seconds for the backend to rebuild the pipeline, then reconnect the video
+                setTimeout(initWebRtc, 15000);
+            } catch (e) { console.error("Failed to change framerate", e); }
+        }
+
+        async function fetchStreamSettings() {
+            try {
+                const resReq = await fetch('/resolution');
+                if (resReq.ok) {
+                    const data = await resReq.json();
+                    document.getElementById('cam-resolution').value = data.resolution;
+                }
+                
+                const fpsReq = await fetch('/framerate');
+                if (fpsReq.ok) {
+                    const data = await fpsReq.json();
+                    document.getElementById('cam-framerate').value = data.framerate.toString();
+                }
+            } catch (e) { console.error("Failed to fetch stream settings", e); }
+        }
+
         // ISP Functions
         function applyISP() {
             const b = parseInt(document.getElementById('isp-bright-num').value);
@@ -1372,9 +1562,13 @@
             postJSON('/isp/wdr', { value: val });
         }
 
-        function applyNoiseReduction() {
-            const val = parseInt(document.getElementById('isp-nr-num').value);
-            postJSON('/isp/noise_reduction', { noise_reduction: val });
+        function apply2DNR() {
+            const val = parseInt(document.getElementById('isp-2dnr-num').value);
+            postJSON('/isp/2dnr', { value: val });
+        }
+        function apply3DNR() {
+            const val = parseInt(document.getElementById('isp-3dnr-num').value);
+            postJSON('/isp/3dnr', { value: val });
         }
 
         async function refreshISP() {
@@ -1383,7 +1577,7 @@
 
         async function toggleAutoISP(val) {
             const isAuto = (val === 'true');
-            ['isp-bright', 'isp-contrast', 'isp-sat', 'isp-sharp', 'isp-wdr', 'isp-nr'].forEach(prefix => {
+            ['isp-bright', 'isp-contrast', 'isp-sat', 'isp-sharp', 'isp-wdr', 'isp-nr', 'isp-2dnr', 'isp-3dnr'].forEach(prefix => {
                 if (document.getElementById(`${prefix}-range`)) document.getElementById(`${prefix}-range`).disabled = isAuto;
                 if (document.getElementById(`${prefix}-num`)) document.getElementById(`${prefix}-num`).disabled = isAuto;
             });
@@ -1449,7 +1643,28 @@
             });
         }
 
-        // --- Encoder Controls ---
+        async function fetchExtraCameraSettings() {
+            try {
+                const dewarpRes = await fetch('/dewarp');
+                if (dewarpRes.ok) {
+                    const data = await dewarpRes.json();
+                    document.getElementById('cam-dewarp').value = data.dewarp.toString();
+                }
+                
+                const grayRes = await fetch('/grayscale');
+                if (grayRes.ok) {
+                    const data = await grayRes.json();
+                    document.getElementById('cam-grayscale').value = data.grayscale.toString();
+                }
+
+                const freezeRes = await fetch('/freeze');
+                if (freezeRes.ok) {
+                    const data = await freezeRes.json();
+                    document.getElementById('cam-freeze').value = data.freeze.toString();
+                }
+            } catch (e) { console.error("Failed to fetch extra settings", e); }
+        }
+
         function applyEncoder() {
             const rc = document.getElementById('enc-rc').value || 'VBR';
             let brKbps = parseInt(document.getElementById('enc-bitrate').value) || 2000;

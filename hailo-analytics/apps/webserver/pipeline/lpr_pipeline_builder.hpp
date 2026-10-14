@@ -24,9 +24,12 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     const std::string &name);
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_classification_pipeline(
-    const std::string &name);
+    const std::string &name, bool is_usa);
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_ocr_pipeline(
+    const std::string &name);
+
+tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_ocr_usa_pipeline(
     const std::string &name);
 
 } // namespace lpr_app

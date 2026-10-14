@@ -11,7 +11,7 @@ namespace pipeline {
 class LprPipeline : public BasePipeline {
 public:
     LprPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
-                RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+                RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H, pipeline_t pipeline_type = pipeline_t::LPR);
     
     virtual std::string pipeline_name() const override;
     void start() override;
@@ -26,6 +26,8 @@ protected:
     void build_pipeline() override;
 
 private:
+    pipeline_t m_pipeline_type;
+    
     // Storage for the LPR events
     std::mutex m_events_mutex;
     std::vector<nlohmann::json> m_lpr_events;

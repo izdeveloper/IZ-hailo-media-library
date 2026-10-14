@@ -16,7 +16,9 @@ using hailo_analytics::pipeline::PipelineBuilder;
 using hailo_analytics::pipeline::StageType;
 using hailo_analytics::pipeline::ai::LightweightTrackerStageBuild;
 
-static constexpr int LICENSE_PLATE_CLASS_ID = 4;
+// FIXED: License plate is Class Index 2 in YAML + 1 offset = Class ID 3
+static constexpr int LICENSE_PLATE_CLASS_ID = 3;
+
 static constexpr std::string_view TRACKING_MODE_FAST = "fast";
 static constexpr std::string_view TRACKING_MODE_SLOW = "slow";
 static constexpr std::string_view TRACKING_MODE_BALANCED = "balanced";
@@ -84,13 +86,26 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     // Build the tiling detection sub-pipeline
     auto cfg = tiling::base_config();
     cfg.tiling_config.queue_size = 1;
+    cfg.tiling_config.leaky = true;
     cfg.aggregator_config.main_queue_size = 3;
 
-    // NMS class indices (1-based): 1=person, 2=vehicle, 3=face, 4=license_plate
-    // Skip person and face — keep only vehicle and license_plate
-    cfg.detection_config.ai_config.nms_classes_filter_mask = {false, true, false, true};
+    cfg.tiling_config.output_width = 640;
+    cfg.tiling_config.output_height = 640;
 
-    cfg.detection_config.ai_config.nms_score_threshold = 0.5f;
+    // --- OVERRIDE DETECTION MODEL AND POST-PROCESS CONFIG HERE ---
+    cfg.detection_config.ai_config.hef_path = 
+        "/home/root/apps/license_plate_recognition/resources/yolov8_detection.hef";
+    cfg.detection_config.post_config.so_path = 
+        "/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so";
+    cfg.detection_config.post_config.function_name = "filter";
+    cfg.detection_config.post_config.config_path = 
+        "/home/root/apps/license_plate_recognition/resources/yolov8_lpr_detection.json";
+
+    // Set hardware NMS threshold to 0.20 to match model score threshold
+    cfg.detection_config.ai_config.nms_score_threshold = 0.35f;
+
+    // Keep all 3 classes: four_wheels, two_wheels, license_plate
+    cfg.detection_config.ai_config.nms_classes_filter_mask = {true, true, true};
 
     std::string tiling_pipeline_name = name + "_tiling";
     auto tiling_pipeline_status = tiling::generate_tiling_detection_pipeline(tiling_pipeline_name, cfg);
@@ -100,7 +115,7 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     }
     auto tiling_pipeline = tiling_pipeline_status.value();
 
-    // Build the lightweight tracker stage for license plate detections
+    // Build the lightweight tracker stage for license plate detections (Class ID 3)
     std::string tracker_stage_name = "lpr_tracker";
     auto tracker_builder = LightweightTrackerStageBuild::create()
                                .set_stage_name(tracker_stage_name)
@@ -144,8 +159,9 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
         .set_input_height(1080)
         .set_output_width(224)
         .set_output_height(224)
-        .set_output_pool_size(25)
-        .set_labels({"vehicle"})
+        .set_output_pool_size(30)
+        .set_pool_mode_opt(StagePoolMode::BLOCKING)
+        .set_labels({"vehicle", "two_wheels"})
         .set_main_sub_name(agg_stage_name)
         .set_sub_sub_name(ai_stage_name)   
         .buildptr();
@@ -154,8 +170,9 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
         .set_stage_name(ai_stage_name)
         .set_hef_path("/home/root/apps/license_plate_recognition/resources/vehicle_attributes.hef")
         .set_batch_size(1)
-        .set_queue_size(20)
+        .set_queue_size(5)
         .set_output_pool_size(30)
+        .set_pool_mode_opt(StagePoolMode::BLOCKING)
         .set_group_id("device0")
         .set_job_limit(20)
         .buildptr();
@@ -163,22 +180,24 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     auto post_stage = ai::PostprocessStageBuild::create()
         .set_stage_name(post_stage_name)
         .set_so_path("/usr/lib/hailo-post-processes/libvehicle_attributes_post.so")
-        .set_function_name_opt("filter") 
+        .set_function_name_opt("filter")
+        .set_queue_size_opt(5)
+        .set_leaky_opt(false)
         .buildptr();
 
     auto agg_stage = cropping::AggregatorStageBuild::create()
         .set_stage_name(agg_stage_name)
         .set_main_inlet_name(crop_stage_name)
         .set_sub_inlet_name(post_stage_name)
+        .set_sub_queue_size(2)
+        .set_sub_leaky(false)
         .buildptr();
 
-    // WIRE IT TOGETHER (Added filter_stage here)
     pip_builder.add_stage(crop_stage, StageType::SOURCE)
                .add_stage(ai_stage)
                .add_stage(post_stage)
                .add_stage(agg_stage, StageType::SINK);
 
-    // Connect filter output to crop input
     pip_builder.connect(crop_stage_name, agg_stage_name);
     pip_builder.connect(crop_stage_name, ai_stage_name);
     pip_builder.connect(ai_stage_name, post_stage_name);
@@ -186,7 +205,6 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
 
     auto pipeline = pip_builder.build(name, true);
 
-    // Filter stage is now the actual entrance of this sub-pipeline
     pipeline->set_in_stage(crop_stage);
     pipeline->set_out_stage(agg_stage);
 
@@ -194,58 +212,73 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_classification_pipeline(
-    const std::string &name)
+    const std::string &name, bool is_usa = false)
 {
     using namespace hailo_analytics::pipeline;
     PipelineBuilder pip_builder;
 
-    std::string filter_stage_name = name + "_guard"; // Unique name
+    std::string filter_stage_name = name + "_guard";
     std::string crop_stage_name = name + "_crop";
     std::string ai_stage_name = name + "_ai";
     std::string post_stage_name = name + "_post";
     std::string agg_stage_name = name + "_agg";
 
+    // Set paths and dimensions based on USA pipeline flag
+    std::string hef_path = is_usa ? 
+        "/home/root/apps/license_plate_recognition/resources/plate_state_usa.hef" : 
+        "/home/root/apps/license_plate_recognition/resources/plate_state.hef";
+
+    std::string post_func = is_usa ? "filter_usa" : "filter";
+
+    int crop_w = is_usa ? 192 : 320;
+    int crop_h = is_usa ? 96 : 320;
+
     auto crop_stage = cropping::BBoxCropStageBuild::create()
         .set_stage_name(crop_stage_name)
         .set_input_width(1920) 
         .set_input_height(1080)
-        .set_output_width(320)
-        .set_output_height(320)
-        .set_output_pool_size(20)
+        .set_output_width(crop_w)
+        .set_output_height(crop_h)
+        .set_output_pool_size(15)
+        .set_pool_mode_opt(StagePoolMode::BLOCKING)
         .set_labels({"license_plate"})
+        .set_letterbox_opt()
         .set_main_sub_name(agg_stage_name)
         .set_sub_sub_name(ai_stage_name)   
         .buildptr();
 
     auto ai_stage = ai::HailortAsyncStageBuild::create()
         .set_stage_name(ai_stage_name)
-        .set_hef_path("/home/root/apps/license_plate_recognition/resources/plate_state.hef")
+        .set_hef_path(hef_path)
         .set_batch_size(1)
-        .set_queue_size(20)
-        .set_output_pool_size(30)
+        .set_queue_size(5)
+        .set_output_pool_size(15)
+        .set_pool_mode_opt(StagePoolMode::BLOCKING)
         .set_group_id("device0")
-        .set_job_limit(20)
+        .set_job_limit(10)
         .buildptr();
 
     auto post_stage = ai::PostprocessStageBuild::create()
         .set_stage_name(post_stage_name)
-        .set_so_path("/usr/lib/hailo-post-processes/libstate_cls_post.so") // /usr/lib/liboem_process.so.1
-        .set_function_name_opt("filter") // state_filter
+        .set_so_path("/usr/lib/hailo-post-processes/libstate_cls_post.so")
+        .set_function_name_opt(post_func)
+        .set_queue_size_opt(5)
+        .set_leaky_opt(false)
         .buildptr();
 
     auto agg_stage = cropping::AggregatorStageBuild::create()
         .set_stage_name(agg_stage_name)
         .set_main_inlet_name(crop_stage_name)
         .set_sub_inlet_name(post_stage_name)
+        .set_sub_queue_size(5)
+        .set_sub_leaky(false)
         .buildptr();
 
-    // WIRE IT TOGETHER (Added filter_stage here)
     pip_builder.add_stage(crop_stage, StageType::SOURCE)
                .add_stage(ai_stage)
                .add_stage(post_stage)
                .add_stage(agg_stage, StageType::SINK);
 
-    // Connect filter output to crop input
     pip_builder.connect(crop_stage_name, agg_stage_name);
     pip_builder.connect(crop_stage_name, ai_stage_name);
     pip_builder.connect(ai_stage_name, post_stage_name);
@@ -253,7 +286,6 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
 
     auto pipeline = pip_builder.build(name, true);
 
-    // Filter stage is now the true entrance
     pipeline->set_in_stage(crop_stage);
     pipeline->set_out_stage(agg_stage);
 
@@ -264,19 +296,58 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     const std::string &name)
 {
     auto cfg = lpr::base_config();
+
     cfg.bbox_crop_config.input_width = 1920;
     cfg.bbox_crop_config.input_height = 1080;
-    cfg.bbox_crop_config.queue_size = 1;
+    cfg.bbox_crop_config.queue_size = 2;
+    cfg.bbox_crop_config.output_pool_size = 20;
+    cfg.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
+
     cfg.aggregator_config.main_queue_size = 3;
-    cfg.aggregator_config.sub_queue_size = 20;
-    cfg.ocr_config.ai_config.queue_size = 20;
-    cfg.ocr_config.post_config.queue_size = 20;
+    cfg.aggregator_config.sub_queue_size = 5;
+
+    cfg.ocr_config.ai_config.queue_size = 5;
+    cfg.ocr_config.post_config.queue_size = 5;
+    cfg.ocr_config.ai_config.output_pool_size = 20;
+    cfg.ocr_config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
 
     cfg.ocr_config.ai_config.hef_path = "/home/root/apps/license_plate_recognition/resources/lprnet_nv12.hef";
-    //cfg.ocr_config.post_config.so_path = "/usr/lib/liboem_process.so.1";
-    //cfg.ocr_config.post_config.function_name = "ocr_filter";
     cfg.bbox_crop_config.output_width = 300;
     cfg.bbox_crop_config.output_height = 74;
+
+    return lpr::generate_bbox_crop_ocr_pipeline(name, cfg);
+}
+
+tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_ocr_usa_pipeline(
+    const std::string &name)
+{
+    auto cfg = lpr::base_config();
+    cfg.bbox_crop_config.input_width = 1920;
+    cfg.bbox_crop_config.input_height = 1080;
+    cfg.bbox_crop_config.queue_size = 2;
+    cfg.aggregator_config.main_queue_size = 3;
+    cfg.aggregator_config.sub_queue_size = 2;
+    cfg.ocr_config.ai_config.queue_size = 5;
+    cfg.ocr_config.post_config.queue_size = 5;
+    cfg.ocr_config.ai_config.output_pool_size = 20;
+
+    cfg.bbox_crop_config.output_pool_size = 20;
+    cfg.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::LEAKY;
+    cfg.ocr_config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::LEAKY;
+
+    // --- USA Model Specific Overrides ---
+    // 1. Path to your newly compiled HEF
+    cfg.ocr_config.ai_config.hef_path = "/home/root/apps/license_plate_recognition/resources/usa_ocr.hef";
+    
+    // 2. Post-processing function name in libocr_post.so
+    cfg.ocr_config.post_config.function_name = "filter_usa"; 
+    
+    // 3. USA OCR character map JSON
+    cfg.ocr_config.post_config.config_path = "/home/root/apps/license_plate_recognition/resources/usa_ocr_chars.json";
+
+    // 4. Crop dimensions matching your USA HEF input: NHWC(96x192x1)
+    cfg.bbox_crop_config.output_width = 192;
+    cfg.bbox_crop_config.output_height = 96;
 
     return lpr::generate_bbox_crop_ocr_pipeline(name, cfg);
 }

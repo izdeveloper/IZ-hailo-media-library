@@ -24,7 +24,10 @@ struct min_max_isp_params_t
 enum class Video0Ctrl
 {
     POWERLINE_FREQUENCY,
-    NOISE_REDUCTION,
+    NOISE_REDUCTION_2D,
+    NOISE_REDUCTION_3D,
+    NOISE_REDUCTION_2D_MODE,
+    NOISE_REDUCTION_3D_MODE,
     SHARPNESS_DOWN,
     SHARPNESS_UP,
     BRIGHTNESS,
@@ -49,6 +52,10 @@ enum class Video0Ctrl
 };
 static const std::unordered_map<Video0Ctrl, const char *> m_ctrl_id_to_name = {
     {Video0Ctrl::POWERLINE_FREQUENCY, "isp_ae_flicker_period"},
+    {Video0Ctrl::NOISE_REDUCTION_2D, "isp_2dnr_strength"},
+    {Video0Ctrl::NOISE_REDUCTION_3D, "isp_3dnr_strength"},
+    {Video0Ctrl::NOISE_REDUCTION_2D_MODE, "isp_2dnr_mode"},
+    {Video0Ctrl::NOISE_REDUCTION_3D_MODE, "isp_3dnr_mode"},
     {Video0Ctrl::SHARPNESS_DOWN, "isp_ee_y_gain_down"},
     {Video0Ctrl::SHARPNESS_UP, "isp_ee_y_gain_up"},
     {Video0Ctrl::BRIGHTNESS, "isp_cproc_brightness"},
@@ -68,6 +75,8 @@ static const std::unordered_map<Video0Ctrl, const char *> m_ctrl_id_to_name = {
 static const std::unordered_map<Video0Ctrl, min_max_isp_params_t> min_max_isp_params = {
     {Video0Ctrl::SHARPNESS_DOWN, {0, 65535}},
     {Video0Ctrl::SHARPNESS_UP, {0, 30000}},
+    {Video0Ctrl::NOISE_REDUCTION_2D, {0, 100}},
+    {Video0Ctrl::NOISE_REDUCTION_3D, {0, 100}},
     {Video0Ctrl::BRIGHTNESS, {-128, 127}},
     {Video0Ctrl::CONTRAST, {30, 199}},
     {Video0Ctrl::SATURATION, {0, 199}},
@@ -86,6 +95,7 @@ template <typename T> bool set(Video0Ctrl id, T val)
     struct v4l2_ext_control ctrl;
     struct v4l2_ext_controls ctrls;
     struct v4l2_query_ext_ctrl qctrl;
+
     ioctl_clear(ctrl);
     ioctl_clear(ctrls);
     ioctl_clear(qctrl);

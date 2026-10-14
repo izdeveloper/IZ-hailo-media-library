@@ -43,7 +43,11 @@ class IspResource : public Resource
     void register_refresh(HTTPServer &srv);
     void register_filters_manual_state(HTTPServer &srv);
     void register_powerline_frequency(HTTPServer &srv);
-    void register_noise_reduction(HTTPServer &srv);
+    //void register_noise_reduction(HTTPServer &srv);
+
+    void register_2dnr(HTTPServer &srv);
+    void register_3dnr(HTTPServer &srv);
+    
     void register_wdr(HTTPServer &srv);
     void register_awb(HTTPServer &srv);
     void register_stream_params(HTTPServer &srv);

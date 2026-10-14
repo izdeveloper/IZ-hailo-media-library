@@ -13,4 +13,6 @@
 __BEGIN_DECLS
 void filter(HailoROIPtr roi);
 void ocr_postprocess(HailoROIPtr roi);
+void filter_usa(HailoROIPtr roi);
+void ocr_postprocess_usa(HailoROIPtr roi);
 __END_DECLS

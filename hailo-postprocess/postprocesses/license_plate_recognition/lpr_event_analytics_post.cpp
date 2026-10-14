@@ -17,12 +17,12 @@
 // Configuration Constants
 static constexpr float CONFIG_MIN_WIDTH = 0.02f;
 static constexpr float CONFIG_MAX_WIDTH = 0.90f;
-static constexpr float CONFIG_MIN_CONF = 0.85f;
-static constexpr uint32_t CONFIG_MIN_STABLE_READS = 3; // Minimum threshold for valid dispatch
-static constexpr uint32_t CONFIG_MAX_FRAMES = 15;      // Max frames to collect for candidate voting
-static constexpr int CONFIG_TRACK_TIMEOUT_MS = 10000;
+static constexpr float CONFIG_MIN_CONF = 0.80f;
+static constexpr uint32_t CONFIG_MIN_STABLE_READS = 2; // Minimum threshold for valid dispatch
+static constexpr uint32_t CONFIG_MAX_FRAMES = 4;      // Max frames to collect for candidate voting
+static constexpr int CONFIG_TRACK_TIMEOUT_MS = 500;
 static constexpr int CONFIG_STATE_TTL_SECONDS = 60;
-static constexpr int CONFIG_DISPATCH_COOLDOWN_SECONDS = 120;
+static constexpr int CONFIG_DISPATCH_COOLDOWN_SECONDS = 10;
 static constexpr int CONFIG_MAX_TYPO_DISTANCE = 3;
 
 static uint64_t g_transaction_counter = 1;
@@ -31,6 +31,9 @@ struct TrackedPlateState
 {
     uint32_t total_valid_frames = 0;
     bool event_dispatched = false;
+    
+    uint32_t candidate_capture_count = 0;
+    float best_candidate_conf = 0.0f;
 
     std::unordered_map<std::string, uint32_t> text_counts; // Occurrence counter
     std::unordered_map<std::string, float> text_votes;     // Accumulated confidence
@@ -44,7 +47,9 @@ struct TrackedPlateState
     std::chrono::steady_clock::time_point last_seen_time;
 
     std::string car_color = "Unknown";
+    float car_color_confidence = 0.0f;
     std::string car_type = "Unknown";
+    float car_type_confidence = 0.0f;
     std::string plate_state = "Unknown";
 };
 
@@ -209,10 +214,15 @@ void tag_event_on_roi(HailoROIPtr roi, const TrackedPlateState &state)
     uint64_t tx_id = g_transaction_counter++;
     std::string guid = "hailo-edge-tx-" + std::to_string(tx_id) + "-" + std::to_string(state.last_tracking_id);
     int out_confidence = static_cast<int>(state.highest_confidence * 100.0f);
+    
+    // Convert raw model confidence scores to percentages
+    int color_confidence = static_cast<int>(state.car_color_confidence * 100.0f);
+    int type_confidence = static_cast<int>(state.car_type_confidence * 100.0f);
 
     nlohmann::json event_payload = {
         {"transaction_id", tx_id},
         {"transaction_guid", guid},
+        {"tracking_id", state.last_tracking_id},
         {"transaction_timestamp", get_utc_iso_timestamp()},
         {"event_version", 1},
         {"transaction_index", tx_id},
@@ -225,10 +235,10 @@ void tag_event_on_roi(HailoROIPtr roi, const TrackedPlateState &state)
                                                 {"plate_state_confidence", out_confidence}}})},
         {"vehicles", nlohmann::json::array({{{"vehicle_id", 0},
                                              {"color", state.car_color},
-                                             {"color_confidence", 95},
+                                             {"color_confidence", color_confidence},       // Replaced 95
                                              {"vehicle_class", state.car_type},
-                                             {"vehicle_class_confidence", 90}}})}};
-
+                                             {"vehicle_class_confidence", type_confidence}}})} // Replaced 90
+    };
     std::cout << "Dispatching INEX Event: " << event_payload.dump() << std::endl;
     roi->add_object(std::make_shared<HailoClassification>("inex_event", event_payload.dump(), state.highest_confidence));
 }
@@ -350,11 +360,14 @@ extern "C"
                 // Match to existing active track
                 if (g_state_tracker_map.find(raw_tracking_id) == g_state_tracker_map.end())
                 {
-                    float min_distance = 0.25f; // Max normalized movement threshold between frames (~15% of frame)
+                    float min_distance = 0.30f; // Max normalized movement threshold between frames (~15% of frame)
                     int matched_id = -1;
 
                     for (auto &[existing_id, existing_state] : g_state_tracker_map)
                     {
+                        if (existing_state.event_dispatched) 
+                            continue;
+
                         // Calculate spatial distance from last seen position
                         float dist = get_bbox_center_distance(bbox, existing_state.last_bbox);
                         auto ms_since_seen = std::chrono::duration_cast<std::chrono::milliseconds>(now - existing_state.last_seen_time).count();
@@ -383,6 +396,18 @@ extern "C"
                 state.last_seen_time = now;
                 state.last_tracking_id = raw_tracking_id;
                 state.last_bbox = bbox;
+
+                if (state.candidate_capture_count < 2 && ocr_confidence > state.best_candidate_conf)
+                {
+                    state.best_candidate_conf = ocr_confidence;
+                    state.candidate_capture_count++;
+
+                    nlohmann::json candidate_payload = {
+                        {"tracking_id", raw_tracking_id},
+                        {"logical_track_id", logical_track_id}
+                    };
+                    roi->add_object(std::make_shared<HailoClassification>("inex_candidate", candidate_payload.dump(), ocr_confidence));
+                }
 
                 if (state.event_dispatched)
                     continue;
@@ -432,10 +457,14 @@ extern "C"
                                         auto v_cls = std::dynamic_pointer_cast<HailoClassification>(v_sub);
                                         if (v_cls)
                                         {
-                                            if (v_cls->get_classification_type() == "car_color")
+                                            if (v_cls->get_classification_type() == "car_color"){
                                                 state.car_color = v_cls->get_label();
-                                            if (v_cls->get_classification_type() == "car_type")
+                                                state.car_color_confidence = v_cls->get_confidence();
+                                            }
+                                            if (v_cls->get_classification_type() == "car_type"){
                                                 state.car_type = v_cls->get_label();
+                                                state.car_type_confidence = v_cls->get_confidence();
+                                            } 
                                         }
                                     }
                                 }

@@ -106,4 +106,58 @@ void filter(HailoROIPtr roi)
     roi->add_object(std::make_shared<HailoClassification>("plate_state", label, confidence));
 }
 
+// Post-processing filter for USA State Classification (58 classes)
+void filter_usa(HailoROIPtr roi)
+{
+    static std::vector<std::string> usa_state_labels;
+    static std::once_flag usa_init_flag;
+
+    std::call_once(usa_init_flag, []() {
+        load_labels_from_json("/home/root/apps/license_plate_recognition/resources/usa_state_labels.json", usa_state_labels);
+    });
+
+    if (!roi->has_tensors()) return;
+
+    auto tensors = roi->get_tensors();
+    if (tensors.empty()) return;
+    auto scores = tensors[0];
+
+    const uint8_t *data = scores->data();
+    if (!data) return;
+
+    float qp_scale = scores->qp_scale();
+    float qp_zp = scores->qp_zp();
+
+    int max_raw = -1;
+    int max_idx = 0;
+    
+    uint32_t tensor_size_bytes = scores->size();
+    uint32_t elements_to_check = usa_state_labels.size();
+    if (tensor_size_bytes < elements_to_check) {
+        elements_to_check = tensor_size_bytes; 
+    }
+
+    if (elements_to_check == 0) return;
+
+    for (uint32_t i = 0; i < elements_to_check; i++) {
+        if ((int)data[i] > max_raw) {
+            max_raw = (int)data[i];
+            max_idx = i;
+        }
+    }
+
+    float confidence = (static_cast<float>(max_raw) - qp_zp) * qp_scale;
+
+    // Safety Clamps
+    if (confidence > 1.0f) confidence = 1.0f;
+    if (confidence < 0.0f) confidence = 0.0f;
+
+    std::string label = "Unknown";
+    if (max_idx < (int)usa_state_labels.size()) {
+        label = usa_state_labels[max_idx];
+    }
+
+    roi->add_object(std::make_shared<HailoClassification>("plate_state", label, confidence));
+}
+
 } // END EXTERN "C"
