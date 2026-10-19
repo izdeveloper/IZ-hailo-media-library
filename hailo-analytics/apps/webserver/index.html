@@ -1485,7 +1485,7 @@
                 const res = await fetch('/ai_pipeline');
                 if (!res.ok) return;
                 const data = await res.json();
-                isLprActive = (data.active === 'License Plate Recognition');
+                isLprActive = (data.active === 'License Plate Recognition' || data.active === 'USA License Plate Recognition');
                 if (data.active) {
                     document.getElementById('ai-pipeline-select').value = data.active;
                 }
